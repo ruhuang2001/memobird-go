@@ -7,11 +7,13 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Config is the top-level application configuration.
 type Config struct {
 	Memobird MemobirdConfig `mapstructure:"memobird"`
 	Storage  StorageConfig  `mapstructure:"storage"`
 }
 
+// MemobirdConfig contains configuration for the Memobird API client.
 type MemobirdConfig struct {
 	AccessKey  string `mapstructure:"access_key"`
 	DeviceID   string `mapstructure:"device_id"`
@@ -20,10 +22,12 @@ type MemobirdConfig struct {
 	TimeoutSec int    `mapstructure:"timeout_sec"`
 }
 
+// StorageConfig contains configuration for the storage layer.
 type StorageConfig struct {
 	DBPath string `mapstructure:"db_path"`
 }
 
+// Timeout returns the HTTP request timeout duration, defaulting to 30 seconds.
 func (m *MemobirdConfig) Timeout() time.Duration {
 	if m.TimeoutSec <= 0 {
 		return 30 * time.Second
@@ -31,6 +35,7 @@ func (m *MemobirdConfig) Timeout() time.Duration {
 	return time.Duration(m.TimeoutSec) * time.Second
 }
 
+// GetBaseURL returns the Memobird API base URL, defaulting to the official API endpoint.
 func (m *MemobirdConfig) GetBaseURL() string {
 	if m.BaseURL == "" {
 		return "http://open.memobird.cn"
@@ -38,6 +43,8 @@ func (m *MemobirdConfig) GetBaseURL() string {
 	return m.BaseURL
 }
 
+// Load reads the configuration from a file or environment variables.
+// If configPath is empty, it looks for config.yaml in default locations.
 func Load(configPath string) (*Config, error) {
 	v := viper.New()
 
@@ -73,6 +80,7 @@ func Load(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Validate checks that all required configuration fields are set.
 func (c *Config) Validate() error {
 	if c.Memobird.AccessKey == "" {
 		return fmt.Errorf("memobird.access_key is required")

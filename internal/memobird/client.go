@@ -14,6 +14,7 @@ import (
 	"github.com/ruhuang2001/memobird-playground/internal/formatter"
 )
 
+// Client is a Memobird thermal printer API client.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
@@ -22,6 +23,7 @@ type Client struct {
 	userID     int
 }
 
+// NewClient creates a new Memobird API client with the provided configuration.
 func NewClient(cfg *config.MemobirdConfig) *Client {
 	return &Client{
 		httpClient: &http.Client{
@@ -34,6 +36,7 @@ func NewClient(cfg *config.MemobirdConfig) *Client {
 	}
 }
 
+// BaseResponse contains common fields returned by all API endpoints.
 type BaseResponse struct {
 	ShowAPIResCode  int    `json:"showapi_res_code"`
 	ShowAPIResError string `json:"showapi_res_error"`
@@ -47,11 +50,13 @@ func (r *BaseResponse) Error() string {
 	return r.ShowAPIResError
 }
 
+// BindResponse contains the result of a user binding request.
 type BindResponse struct {
 	BaseResponse
 	UserID int `json:"showapi_userid"`
 }
 
+// PrintResponse contains the result of a print request.
 type PrintResponse struct {
 	BaseResponse
 	Result         int    `json:"result"`
@@ -63,6 +68,7 @@ func (p *PrintResponse) IsPrinted() bool {
 	return p.Result == 1
 }
 
+// PrintStatusResponse contains the status of a print job.
 type PrintStatusResponse struct {
 	BaseResponse
 	PrintFlag      int    `json:"printflag"`
@@ -73,15 +79,19 @@ func (p *PrintStatusResponse) IsPrinted() bool {
 	return p.PrintFlag == 1
 }
 
+// ImageConvertResponse contains the result of an image conversion request.
 type ImageConvertResponse struct {
 	BaseResponse
 	Result string `json:"result"`
 }
 
+// timestamp returns the current time in the format required by the API (YYYY-MM-DD HH:MM:SS).
 func (c *Client) timestamp() string {
 	return time.Now().Format("2006-01-02 15:04:05")
 }
 
+// doRequest sends an HTTP POST request to the specified endpoint with the given parameters.
+// It automatically adds the access key and timestamp to the request.
 func (c *Client) doRequest(ctx context.Context, endpoint string, params url.Values) ([]byte, error) {
 	params.Set("ak", c.accessKey)
 	params.Set("timestamp", c.timestamp())
@@ -114,6 +124,7 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, params url.Valu
 	return body, nil
 }
 
+// BindUser binds a user identifier to the current device, returning the assigned user ID.
 func (c *Client) BindUser(ctx context.Context, userIdentifying string) (*BindResponse, error) {
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
@@ -136,6 +147,7 @@ func (c *Client) BindUser(ctx context.Context, userIdentifying string) (*BindRes
 	return &resp, nil
 }
 
+// GetPrintStatus retrieves the print status for a given print content ID.
 func (c *Client) GetPrintStatus(ctx context.Context, printContentID int) (*PrintStatusResponse, error) {
 	params := url.Values{}
 	params.Set("printcontentid", fmt.Sprintf("%d", printContentID))
@@ -157,6 +169,7 @@ func (c *Client) GetPrintStatus(ctx context.Context, printContentID int) (*Print
 	return &resp, nil
 }
 
+// ConvertToMonochrome converts a base64-encoded image to monochrome format suitable for thermal printing.
 func (c *Client) ConvertToMonochrome(ctx context.Context, imgBase64 string) (*ImageConvertResponse, error) {
 	params := url.Values{}
 	params.Set("imgBase64String", imgBase64)
@@ -178,6 +191,8 @@ func (c *Client) ConvertToMonochrome(ctx context.Context, imgBase64 string) (*Im
 	return &resp, nil
 }
 
+// PrintText prints plain text content to the thermal printer.
+// The text is encoded to GBK and base64 before sending.
 func (c *Client) PrintText(ctx context.Context, text string) (*PrintResponse, error) {
 	encoded, err := formatter.EncodeTextToGBKBase64(text)
 	if err != nil {
@@ -209,6 +224,7 @@ func (c *Client) PrintText(ctx context.Context, text string) (*PrintResponse, er
 	return &resp, nil
 }
 
+// PrintFromURL prints content from a web page by providing its URL to the print service.
 func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintResponse, error) {
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
@@ -232,6 +248,7 @@ func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintRespon
 	return &resp, nil
 }
 
+// PrintFromHTML prints HTML content directly to the thermal printer.
 func (c *Client) PrintFromHTML(ctx context.Context, html string) (*PrintResponse, error) {
 	// Try UTF-8 Base64 (no GBK conversion), see if server handles it
 	encoded := formatter.EncodeHTMLToUTF8Base64(html)
@@ -325,10 +342,12 @@ func (c *Client) PrintImageProcessed(ctx context.Context, processedImgBase64 str
 	return &resp, nil
 }
 
+// SetUserID sets the user ID for subsequent print requests.
 func (c *Client) SetUserID(userID int) {
 	c.userID = userID
 }
 
+// GetUserID returns the currently configured user ID.
 func (c *Client) GetUserID() int {
 	return c.userID
 }

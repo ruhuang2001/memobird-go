@@ -15,6 +15,7 @@ const (
 	PrinterWidth = 400
 )
 
+// Renderer handles rendering web content to images using headless Chrome.
 type Renderer struct {
 	timeout        time.Duration
 	renderDelay    time.Duration

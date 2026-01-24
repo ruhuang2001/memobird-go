@@ -9,6 +9,8 @@ import (
 	"golang.org/x/text/transform"
 )
 
+// EncodeTextToGBKBase64 encodes text to GBK character encoding and then to base64.
+// A trailing newline is automatically added if not present.
 func EncodeTextToGBKBase64(text string) (string, error) {
 	if !strings.HasSuffix(text, "\n") {
 		text = text + "\n"
@@ -58,6 +60,7 @@ const (
 	MaxCharsPerLine = 32
 )
 
+// TruncateText limits text to a maximum number of lines, appending "..." if truncated.
 func TruncateText(text string, maxLines int) string {
 	if maxLines <= 0 {
 		maxLines = 10
@@ -71,6 +74,7 @@ func TruncateText(text string, maxLines int) string {
 	return strings.Join(lines[:maxLines], "\n") + "\n..."
 }
 
+// WrapText wraps text to fit within a maximum width (in runes) per line.
 func WrapText(text string, maxWidth int) string {
 	if maxWidth <= 0 {
 		maxWidth = MaxCharsPerLine
