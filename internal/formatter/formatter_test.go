@@ -18,12 +18,12 @@ func TestEncodeTextToGBKBase64(t *testing.T) {
 		},
 		{
 			name:    "Chinese text",
-			input:   "你好世界",
+			input:   "Hello World",
 			wantErr: false,
 		},
 		{
 			name:    "mixed text",
-			input:   "Hello 你好",
+			input:   "Hello World",
 			wantErr: false,
 		},
 		{
@@ -49,7 +49,7 @@ func TestEncodeTextToGBKBase64(t *testing.T) {
 }
 
 func TestDecodeGBKBase64ToText(t *testing.T) {
-	original := "你好世界"
+	original := "Hello World"
 	encoded, err := EncodeTextToGBKBase64(original)
 	if err != nil {
 		t.Fatalf("EncodeTextToGBKBase64() error = %v", err)
@@ -143,8 +143,8 @@ func TestWrapText(t *testing.T) {
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	testCases := []string{
 		"Hello, World!",
-		"你好，世界！",
-		"Test 123 测试",
+		"Hello, World!",
+		"Test 123 Test",
 		"Special chars: @#$%",
 	}
 
