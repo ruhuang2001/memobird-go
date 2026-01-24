@@ -32,6 +32,9 @@ func ProcessImageForPrint(imgBase64 string) (string, error) {
 	bounds := src.Bounds()
 	srcWidth := bounds.Dx()
 	srcHeight := bounds.Dy()
+	if srcWidth == 0 || srcHeight == 0 {
+		return "", fmt.Errorf("invalid image dimensions: %dx%d", srcWidth, srcHeight)
+	}
 	newHeight := (TargetWidth * srcHeight) / srcWidth
 
 	// Resize image using high-quality interpolation
