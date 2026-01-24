@@ -16,9 +16,11 @@ help:
 	@echo "  make clean              Clean build artifacts"
 	@echo ""
 	@echo "Commands:"
-	@echo "  make bind USER=myuser   Bind device with user identifier"
-	@echo "  make print-url URL=...  Print from URL"
-	@echo "  make print-html HTML=.. Print HTML content"
+	@echo "  make bind USER=myuser      Bind device with user identifier"
+	@echo "  make print-url URL=...     Print from URL (text mode)"
+	@echo "  make print-html HTML=..   Print HTML content (text mode)"
+	@echo "  make print-url-img URL=.. Print from URL as image"
+	@echo "  make print-html-img HTML. Print HTML as image"
 
 # Build the binary
 build:
@@ -57,6 +59,20 @@ ifndef HTML
 	$(error HTML is required. Usage: make print-html HTML='<html>...</html>')
 endif
 	./$(BINARY_NAME) -config config.yaml -print-html "$(HTML)"
+
+# Print webpage from URL as image
+print-url-img: build
+ifndef URL
+	$(error URL is required. Usage: make print-url-img URL='https://example.com')
+endif
+	./$(BINARY_NAME) -config config.yaml -print-url-img "$(URL)"
+
+# Print HTML as image
+print-html-img: build
+ifndef HTML
+	$(error HTML is required. Usage: make print-html-img HTML='<html>...</html>')
+endif
+	./$(BINARY_NAME) -config config.yaml -print-html-img "$(HTML)"
 
 # Download dependencies
 deps:

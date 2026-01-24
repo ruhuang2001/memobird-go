@@ -4,12 +4,15 @@ A collection of tools for interacting with Memobird thermal printers.
 
 ## Features
 
-- Print from URL
-- Print HTML content
+- Print from URL (text mode)
+- Print HTML content (text mode)
+- **Print from URL as image** (better text rendering)
+- **Print HTML as image** (full layout support)
 
 ## Prerequisites
 
-- Go 1.22+
+- Go 1.24+
+- Chrome or Chromium (for image rendering)
 - A Memobird device
 - Access Key from [open.memobird.cn](http://open.memobird.cn)
 
@@ -44,11 +47,17 @@ This will output a `user_id` - add it to your `config.yaml`.
 ### 4. Print
 
 ```bash
-# Print from URL
+# Print from URL (text mode)
 make print-url URL="https://example.com"
 
-# Print HTML content
+# Print HTML content (text mode)
 make print-html HTML="<html><body>Hello, Memobird!</body></html>"
+
+# Print from URL as image (better rendering)
+make print-url-img URL="https://example.com"
+
+# Print HTML as image (full layout support)
+make print-html-img HTML="<html><body><h1>Hello!</h1></body></html>"
 ```
 
 ## Installation
@@ -80,9 +89,13 @@ make test
   -bind string
         bind user identifier (run once to get user_id)
   -print-url string
-        print from URL immediately and exit
+        print from URL immediately and exit (text mode)
   -print-html string
-        print HTML content immediately and exit
+        print HTML content immediately and exit (text mode)
+  -print-url-img string
+        render URL as image and print (better text rendering)
+  -print-html-img string
+        render HTML as image and print (full layout support)
   -version
         show version
 ```
@@ -90,14 +103,35 @@ make test
 ### Print from URL
 
 ```bash
+# Text mode (original API)
 ./memobird -config config.yaml -print-url "https://example.com"
+
+# Image mode (better rendering)
+./memobird -config config.yaml -print-url-img "https://example.com"
+./memobird -config config.yaml -print-url-img "http://localhost:8080"
 ```
 
 ### Print HTML Content
 
 ```bash
+# Text mode (original API)
 ./memobird -config config.yaml -print-html "<html><body>Hello, Memobird!</body></html>"
+
+# Image mode (full layout support)
+./memobird -config config.yaml -print-html-img "<html><body><h1>Hello!</h1></body></html>"
 ```
+
+### Rendering Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| Text | Original API, faster | Simple text, plain content |
+| Image | Renders to PNG, better quality | Complex layouts, styling, local content |
+
+Image rendering includes:
+- Automatic resizing to 384px width (thermal printer spec)
+- Floyd-Steinberg dithering for high-contrast monochrome
+- 2x scale factor for sharp text
 
 ## Configuration
 
@@ -121,8 +155,9 @@ memobird-playground/
 │   └── main.go              # Entry point
 ├── internal/
 │   ├── config/              # Configuration loading
-│   ├── formatter/           # GBK Base64 encoding
+│   ├── formatter/           # GBK/UTF-8 Base64 encoding
 │   ├── memobird/            # API client
+│   ├── renderer/            # HTML/Image rendering (chromedp)
 │   └── storage/             # SQLite persistence
 ├── config.example.yaml
 └── Makefile
@@ -135,10 +170,34 @@ The Memobird API client supports:
 | Method | Description |
 |--------|-------------|
 | `BindUser` | Bind device to user identifier |
-| `PrintFromURL` | Print webpage by URL |
-| `PrintFromHTML` | Print HTML content |
+| `PrintFromURL` | Print webpage by URL (text mode) |
+| `PrintFromHTML` | Print HTML content (text mode) |
+| `PrintImage` | Print base64-encoded PNG image |
+| `PrintImageProcessed` | Print pre-processed monochrome image |
 | `GetPrintStatus` | Check print status |
-| `ConvertToMonochrome` | Convert image to printable format |
+
+### Renderer Package
+
+The `renderer` package provides HTML-to-image conversion:
+
+```go
+import "github.com/ruhuang2001/memobird-playground/internal/renderer"
+
+// Create renderer with 30s timeout
+r := renderer.New(30 * time.Second)
+
+// Render URL to PNG (base64)
+imgBase64, err := r.RenderURLToImage(ctx, "https://example.com")
+
+// Render HTML to PNG (base64)
+imgBase64, err := r.RenderHTMLToImage(ctx, "<html>...</html>")
+
+// Process image for thermal printer (384px, monochrome, dithered)
+processed, err := renderer.ProcessImageForPrint(imgBase64)
+
+// Validate URL (http/https only)
+err := renderer.ValidateURL("https://example.com")
+```
 
 ## Environment Variables
 
