@@ -22,6 +22,22 @@ func EncodeTextToGBKBase64(text string) (string, error) {
 	return base64.StdEncoding.EncodeToString(gbkBytes), nil
 }
 
+// EncodeHTMLToGBKBase64 encodes HTML for the printpaperFromHtml API
+// Does not add trailing newline (unlike text)
+func EncodeHTMLToGBKBase64(html string) (string, error) {
+	gbkEncoder := simplifiedchinese.GBK.NewEncoder()
+	gbkBytes, _, err := transform.Bytes(gbkEncoder, []byte(html))
+	if err != nil {
+		return "", fmt.Errorf("failed to encode HTML to GBK: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(gbkBytes), nil
+}
+
+// EncodeHTMLToUTF8Base64 encodes HTML as UTF-8 Base64 (alternative method)
+func EncodeHTMLToUTF8Base64(html string) string {
+	return base64.StdEncoding.EncodeToString([]byte(html))
+}
+
 func DecodeGBKBase64ToText(encoded string) (string, error) {
 	gbkBytes, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
