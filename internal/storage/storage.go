@@ -9,10 +9,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Storage handles persistent storage for user bindings using SQLite.
 type Storage struct {
 	db *sql.DB
 }
 
+// New creates a new Storage instance with the database at the given path.
+// It automatically runs migrations to ensure the schema is up to date.
 func New(dbPath string) (*Storage, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -28,6 +31,7 @@ func New(dbPath string) (*Storage, error) {
 	return s, nil
 }
 
+// migrate creates the necessary database tables if they don't exist.
 func (s *Storage) migrate() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS user_binding (
@@ -42,6 +46,7 @@ func (s *Storage) migrate() error {
 	return err
 }
 
+// SaveUserBinding stores a user-device binding in the database.
 func (s *Storage) SaveUserBinding(ctx context.Context, userID int, deviceID string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO user_binding (id, user_id, device_id, bound_at) VALUES (1, ?, ?, ?)`,
@@ -52,6 +57,8 @@ func (s *Storage) SaveUserBinding(ctx context.Context, userID int, deviceID stri
 	return nil
 }
 
+// GetUserBinding retrieves the stored user-device binding from the database.
+// Returns zero values if no binding exists.
 func (s *Storage) GetUserBinding(ctx context.Context) (userID int, deviceID string, err error) {
 	err = s.db.QueryRowContext(ctx, "SELECT user_id, device_id FROM user_binding WHERE id = 1").Scan(&userID, &deviceID)
 	if err == sql.ErrNoRows {
@@ -63,6 +70,7 @@ func (s *Storage) GetUserBinding(ctx context.Context) (userID int, deviceID stri
 	return userID, deviceID, nil
 }
 
+// Close closes the database connection.
 func (s *Storage) Close() error {
 	return s.db.Close()
 }

@@ -103,6 +103,7 @@ func main() {
 	flag.Usage()
 }
 
+// initUserBinding initializes the user binding from config or storage.
 func initUserBinding(ctx context.Context, cfg *config.Config, client *memobird.Client, store *storage.Storage, logger *slog.Logger) error {
 	if cfg.Memobird.UserID > 0 {
 		client.SetUserID(cfg.Memobird.UserID)
@@ -124,6 +125,7 @@ func initUserBinding(ctx context.Context, cfg *config.Config, client *memobird.C
 	return nil
 }
 
+// runBind executes the user binding flow and persists the result.
 func runBind(ctx context.Context, client *memobird.Client, store *storage.Storage, userIdentifying, deviceID string, logger *slog.Logger) error {
 	logger.Info("binding user", "user_identifying", userIdentifying)
 
@@ -145,6 +147,7 @@ func runBind(ctx context.Context, client *memobird.Client, store *storage.Storag
 	return nil
 }
 
+// runPrintURL prints content from a web page URL.
 func runPrintURL(ctx context.Context, client *memobird.Client, pageURL string, logger *slog.Logger) error {
 	if client.GetUserID() == 0 {
 		return fmt.Errorf("user_id not configured, run -bind first")
@@ -167,6 +170,7 @@ func runPrintURL(ctx context.Context, client *memobird.Client, pageURL string, l
 	return nil
 }
 
+// runPrintHTML prints HTML content directly.
 func runPrintHTML(ctx context.Context, client *memobird.Client, html string, logger *slog.Logger) error {
 	if client.GetUserID() == 0 {
 		return fmt.Errorf("user_id not configured, run -bind first")
@@ -185,6 +189,7 @@ func runPrintHTML(ctx context.Context, client *memobird.Client, html string, log
 	return nil
 }
 
+// runPrintURLAsImage renders a web page to an image and prints it.
 func runPrintURLAsImage(ctx context.Context, client *memobird.Client, render *renderer.Renderer, pageURL string, logger *slog.Logger) error {
 	if client.GetUserID() == 0 {
 		return fmt.Errorf("user_id not configured, run -bind first")
@@ -222,6 +227,7 @@ func runPrintURLAsImage(ctx context.Context, client *memobird.Client, render *re
 	return nil
 }
 
+// runPrintHTMLAsImage renders HTML content to an image and prints it.
 func runPrintHTMLAsImage(ctx context.Context, client *memobird.Client, render *renderer.Renderer, html string, logger *slog.Logger) error {
 	if client.GetUserID() == 0 {
 		return fmt.Errorf("user_id not configured, run -bind first")
