@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/chromedp/chromedp"
@@ -17,8 +18,20 @@ const (
 
 // Renderer handles rendering web content to images using headless Chrome.
 type Renderer struct {
-	timeout        time.Duration
-	renderDelay    time.Duration
+	timeout     time.Duration
+	renderDelay time.Duration
+
+	mu          sync.Mutex
+	urlSession  *browserSession
+	htmlSession *browserSession
+	closed      bool
+}
+
+type browserSession struct {
+	allocCtx      context.Context
+	allocCancel   context.CancelFunc
+	browserCtx    context.Context
+	browserCancel context.CancelFunc
 }
 
 // New creates a new Renderer with the specified timeout and optional render delay.
@@ -47,6 +60,106 @@ func NewWithOptions(timeout, renderDelay time.Duration) *Renderer {
 	}
 }
 
+// Close releases background browser resources used by the renderer.
+func (r *Renderer) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
+	if r.urlSession != nil {
+		r.urlSession.browserCancel()
+		r.urlSession.allocCancel()
+		r.urlSession = nil
+	}
+
+	if r.htmlSession != nil {
+		r.htmlSession.browserCancel()
+		r.htmlSession.allocCancel()
+		r.htmlSession = nil
+	}
+
+	r.closed = true
+}
+
+func (r *Renderer) getURLBrowserContext() (context.Context, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return nil, fmt.Errorf("renderer is closed")
+	}
+
+	if r.urlSession == nil {
+		opts := append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.Flag("headless", true),
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("force-device-scale-factor", "2"),
+			chromedp.WindowSize(PrinterWidth, 800),
+		)
+		r.urlSession = newBrowserSession(opts)
+	}
+
+	return r.urlSession.browserCtx, nil
+}
+
+func (r *Renderer) getHTMLBrowserContext() (context.Context, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return nil, fmt.Errorf("renderer is closed")
+	}
+
+	if r.htmlSession == nil {
+		opts := append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.Flag("headless", true),
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("no-sandbox", true),
+			chromedp.WindowSize(PrinterWidth, 800),
+		)
+		r.htmlSession = newBrowserSession(opts)
+	}
+
+	return r.htmlSession.browserCtx, nil
+}
+
+func newBrowserSession(opts []chromedp.ExecAllocatorOption) *browserSession {
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
+
+	return &browserSession{
+		allocCtx:      allocCtx,
+		allocCancel:   allocCancel,
+		browserCtx:    browserCtx,
+		browserCancel: browserCancel,
+	}
+}
+
+func (r *Renderer) newTaskContext(parent context.Context, requestCtx context.Context) (context.Context, context.CancelFunc) {
+	baseCtx, baseCancel := context.WithCancel(parent)
+
+	go func() {
+		select {
+		case <-requestCtx.Done():
+			baseCancel()
+		case <-baseCtx.Done():
+		}
+	}()
+
+	timeoutCtx, timeoutCancel := context.WithTimeout(baseCtx, r.timeout)
+
+	cancel := func() {
+		timeoutCancel()
+		baseCancel()
+	}
+
+	return timeoutCtx, cancel
+}
+
 // ValidateURL checks if a URL has a valid format and safe protocol.
 // Only http and https schemes are allowed (blocks file://, ftp://, etc.)
 func ValidateURL(pageURL string) error {
@@ -66,22 +179,16 @@ func ValidateURL(pageURL string) error {
 // RenderURLToImage renders a webpage to a PNG image (base64 encoded)
 // Uses 2x scale for sharper text on thermal printers
 func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string, error) {
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
-		chromedp.Flag("force-device-scale-factor", "2"),
-		chromedp.WindowSize(PrinterWidth, 800),
-	)
+	browserCtx, err := r.getURLBrowserContext()
+	if err != nil {
+		return "", err
+	}
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
-	defer allocCancel()
+	tabCtx, tabCancel := chromedp.NewContext(browserCtx)
+	defer tabCancel()
 
-	chromeCtx, chromeCancel := chromedp.NewContext(allocCtx)
-	defer chromeCancel()
-
-	timeoutCtx, timeoutCancel := context.WithTimeout(chromeCtx, r.timeout)
-	defer timeoutCancel()
+	taskCtx, taskCancel := r.newTaskContext(tabCtx, ctx)
+	defer taskCancel()
 
 	// Inject CSS to increase font size and minimize margins for thermal printer
 	fontCSS := `
@@ -103,7 +210,7 @@ func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string
 	`
 
 	var buf []byte
-	err := chromedp.Run(timeoutCtx,
+	err = chromedp.Run(taskCtx,
 		chromedp.Navigate(pageURL),
 		chromedp.WaitReady("body"),
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -126,21 +233,16 @@ func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string
 
 // RenderHTMLToImage renders HTML content to a PNG image (base64 encoded)
 func (r *Renderer) RenderHTMLToImage(ctx context.Context, html string) (string, error) {
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
-		chromedp.WindowSize(PrinterWidth, 800),
-	)
+	browserCtx, err := r.getHTMLBrowserContext()
+	if err != nil {
+		return "", err
+	}
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
-	defer allocCancel()
+	tabCtx, tabCancel := chromedp.NewContext(browserCtx)
+	defer tabCancel()
 
-	chromeCtx, chromeCancel := chromedp.NewContext(allocCtx)
-	defer chromeCancel()
-
-	timeoutCtx, timeoutCancel := context.WithTimeout(chromeCtx, r.timeout)
-	defer timeoutCancel()
+	taskCtx, taskCancel := r.newTaskContext(tabCtx, ctx)
+	defer taskCancel()
 
 	// Wrap HTML with proper styling for thermal printer width
 	wrappedHTML := fmt.Sprintf(`
@@ -167,7 +269,7 @@ img { max-width: 100%%; height: auto; }
 </html>`, PrinterWidth-16, html)
 
 	var buf []byte
-	err := chromedp.Run(timeoutCtx,
+	err = chromedp.Run(taskCtx,
 		chromedp.Navigate("about:blank"),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return chromedp.Evaluate(fmt.Sprintf(`document.documentElement.innerHTML = %q`, wrappedHTML), nil).Do(ctx)

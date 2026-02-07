@@ -250,8 +250,10 @@ func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintRespon
 
 // PrintFromHTML prints HTML content directly to the thermal printer.
 func (c *Client) PrintFromHTML(ctx context.Context, html string) (*PrintResponse, error) {
-	// Try UTF-8 Base64 (no GBK conversion), see if server handles it
-	encoded := formatter.EncodeHTMLToUTF8Base64(html)
+	encoded, err := formatter.EncodeHTMLToGBKBase64(html)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode HTML: %w", err)
+	}
 
 	// Base64 encoded result will be URL encoded by params.Encode()
 	params := url.Values{}

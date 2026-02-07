@@ -57,16 +57,17 @@ func ProcessImageForPrint(imgBase64 string) (string, error) {
 func ditherToMonochrome(img *image.RGBA) *image.Gray {
 	bounds := img.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
+	stride := w + 2
 
-	// Create grayscale version with error diffusion buffer
-	gray := make([][]float64, h)
+	// Create grayscale version with padded 1D error-diffusion buffer
+	gray := make([]float32, h*stride)
 	for y := 0; y < h; y++ {
-		gray[y] = make([]float64, w)
+		base := y * stride
 		for x := 0; x < w; x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
 			// Convert to grayscale using luminance formula
 			lum := 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)
-			gray[y][x] = lum / 256.0 // Scale to 0-255 range
+			gray[base+x+1] = float32(lum / 256.0) // Scale to 0-255 range
 		}
 	}
 
@@ -74,9 +75,12 @@ func ditherToMonochrome(img *image.RGBA) *image.Gray {
 
 	// Floyd-Steinberg dithering
 	for y := 0; y < h; y++ {
+		row := y * stride
+		nextRow := row + stride
 		for x := 0; x < w; x++ {
-			oldPixel := gray[y][x]
-			var newPixel float64
+			idx := row + x + 1
+			oldPixel := gray[idx]
+			var newPixel float32
 			if oldPixel > 128 {
 				newPixel = 255
 			} else {
@@ -85,18 +89,13 @@ func ditherToMonochrome(img *image.RGBA) *image.Gray {
 			result.SetGray(x, y, color.Gray{Y: uint8(newPixel)})
 
 			err := oldPixel - newPixel
+
 			// Distribute error to neighboring pixels
-			if x+1 < w {
-				gray[y][x+1] += err * 7 / 16
-			}
+			gray[idx+1] += err * 7 / 16
 			if y+1 < h {
-				if x > 0 {
-					gray[y+1][x-1] += err * 3 / 16
-				}
-				gray[y+1][x] += err * 5 / 16
-				if x+1 < w {
-					gray[y+1][x+1] += err * 1 / 16
-				}
+				gray[nextRow+x] += err * 3 / 16
+				gray[nextRow+x+1] += err * 5 / 16
+				gray[nextRow+x+2] += err * 1 / 16
 			}
 		}
 	}

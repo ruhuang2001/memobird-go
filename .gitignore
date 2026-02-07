@@ -1,4 +1,6 @@
 # Binaries
+main
+memobird
 memobird-playground
 *.exe
 *.exe~

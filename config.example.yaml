@@ -8,7 +8,8 @@ memobird:
   device_id: "your-device-id-here"
   
   # User ID - obtained after running: ./memobird -bind your-unique-id
-  # Leave empty and use -bind flag to get this value
+  # Keep as 0 to auto-load the last saved binding from storage.db_path
+  # (only used when the stored device_id matches this device_id)
   user_id: 0
   
   # API base URL (optional, defaults to official API)

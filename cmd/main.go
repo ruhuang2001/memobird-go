@@ -17,6 +17,7 @@ import (
 var (
 	configPath     = flag.String("config", "", "path to config file")
 	bindUser       = flag.String("bind", "", "bind user identifier (run once to get user_id)")
+	printText      = flag.String("print-text", "", "print plain text immediately and exit (GBK text mode, experimental)")
 	printURL       = flag.String("print-url", "", "print from URL immediately and exit")
 	printHTML      = flag.String("print-html", "", "print HTML content immediately and exit")
 	printURLAsImg  = flag.String("print-url-img", "", "render URL as image and print (for better text rendering)")
@@ -66,6 +67,14 @@ func main() {
 		return
 	}
 
+	if *printText != "" {
+		if err := runPrintText(context.Background(), client, *printText, logger); err != nil {
+			logger.Error("print text failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if *printURL != "" {
 		if err := runPrintURL(context.Background(), client, *printURL, logger); err != nil {
 			logger.Error("print from URL failed", "error", err)
@@ -83,6 +92,7 @@ func main() {
 	}
 
 	render := renderer.New(30 * time.Second)
+	defer render.Close()
 
 	if *printURLAsImg != "" {
 		if err := runPrintURLAsImage(context.Background(), client, render, *printURLAsImg, logger); err != nil {
@@ -143,6 +153,28 @@ func runBind(ctx context.Context, client *memobird.Client, store *storage.Storag
 	fmt.Printf("Add this to your config.yaml:\n\n")
 	fmt.Printf("memobird:\n")
 	fmt.Printf("  user_id: %d\n\n", resp.UserID)
+
+	return nil
+}
+
+// runPrintText prints plain text using the /home/printpaper endpoint.
+func runPrintText(ctx context.Context, client *memobird.Client, text string, logger *slog.Logger) error {
+	if client.GetUserID() == 0 {
+		return fmt.Errorf("user_id not configured, run -bind first")
+	}
+
+	logger.Warn("print-text is experimental: some Memobird models/firmware may print blank paper", "suggestion", "use -print-html-img for stable Chinese output")
+
+	logger.Info("printing text content", "length", len(text))
+
+	resp, err := client.PrintText(ctx, text)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("print submitted", "content_id", resp.PrintContentID, "printed", resp.IsPrinted())
+	fmt.Printf("Print submitted! Content ID: %d\n", resp.PrintContentID)
+	fmt.Printf("Note: -print-text may be unsupported on some devices and can result in blank output.\n")
 
 	return nil
 }
