@@ -17,6 +17,7 @@ help:
 	@echo ""
 	@echo "Commands:"
 	@echo "  make bind USER=myuser         	Bind device with user identifier"
+	@echo "  make print-text TEXT=...      	Print plain text (GBK text mode, experimental)"
 	@echo "  make print-url URL=...        	Print from URL (text mode)"
 	@echo "  make print-html HTML=...      	Print HTML content (text mode)"
 	@echo "  make print-url-img URL=...    	Print from URL as image"
@@ -45,6 +46,13 @@ ifndef USER
 	$(error USER is required. Usage: make bind USER=myuser)
 endif
 	./$(BINARY_NAME) -config config.yaml -bind $(USER)
+
+# Print plain text
+print-text: build
+ifndef TEXT
+	$(error TEXT is required. Usage: make print-text TEXT='你好，世界')
+endif
+	./$(BINARY_NAME) -config config.yaml -print-text "$(TEXT)"
 
 # Print webpage from URL
 print-url: build

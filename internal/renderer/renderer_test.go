@@ -119,42 +119,42 @@ func TestNewRenderer(t *testing.T) {
 
 func TestNewRendererWithOptions(t *testing.T) {
 	tests := []struct {
-		name           string
-		timeout        time.Duration
-		renderDelay    time.Duration
-		wantTimeout    time.Duration
+		name            string
+		timeout         time.Duration
+		renderDelay     time.Duration
+		wantTimeout     time.Duration
 		wantRenderDelay time.Duration
-		description    string
+		description     string
 	}{
 		{
-			name:           "custom options",
-			timeout:        45 * time.Second,
-			renderDelay:    200 * time.Millisecond,
-			wantTimeout:    45 * time.Second,
+			name:            "custom options",
+			timeout:         45 * time.Second,
+			renderDelay:     200 * time.Millisecond,
+			wantTimeout:     45 * time.Second,
 			wantRenderDelay: 200 * time.Millisecond,
 			description:     "should use provided options",
 		},
 		{
-			name:           "zero timeout uses default",
-			timeout:        0,
-			renderDelay:    100 * time.Millisecond,
-			wantTimeout:    30 * time.Second,
+			name:            "zero timeout uses default",
+			timeout:         0,
+			renderDelay:     100 * time.Millisecond,
+			wantTimeout:     30 * time.Second,
 			wantRenderDelay: 100 * time.Millisecond,
 			description:     "should use default timeout when zero",
 		},
 		{
-			name:           "zero delay uses default",
-			timeout:        20 * time.Second,
-			renderDelay:    0,
-			wantTimeout:    20 * time.Second,
+			name:            "zero delay uses default",
+			timeout:         20 * time.Second,
+			renderDelay:     0,
+			wantTimeout:     20 * time.Second,
 			wantRenderDelay: 500 * time.Millisecond,
 			description:     "should use default delay when zero",
 		},
 		{
-			name:           "both zero use defaults",
-			timeout:        0,
-			renderDelay:    0,
-			wantTimeout:    30 * time.Second,
+			name:            "both zero use defaults",
+			timeout:         0,
+			renderDelay:     0,
+			wantTimeout:     30 * time.Second,
 			wantRenderDelay: 500 * time.Millisecond,
 			description:     "should use defaults when both are zero",
 		},
@@ -176,6 +176,21 @@ func TestNewRendererWithOptions(t *testing.T) {
 func TestPrinterWidth(t *testing.T) {
 	if PrinterWidth != 400 {
 		t.Errorf("PrinterWidth = %d, want 400", PrinterWidth)
+	}
+}
+
+func TestRendererClose(t *testing.T) {
+	r := New(5 * time.Second)
+
+	r.Close()
+	r.Close()
+
+	if _, err := r.getURLBrowserContext(); err == nil {
+		t.Error("expected getURLBrowserContext to fail after close")
+	}
+
+	if _, err := r.getHTMLBrowserContext(); err == nil {
+		t.Error("expected getHTMLBrowserContext to fail after close")
 	}
 }
 

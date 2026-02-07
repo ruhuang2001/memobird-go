@@ -1,13 +1,19 @@
 package memobird
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/ruhuang2001/memobird-playground/internal/config"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 // newTestServer creates a test HTTP server with the given handler.
@@ -146,9 +152,40 @@ func TestClient_PrintFromURL(t *testing.T) {
 }
 
 func TestClient_PrintFromHTML(t *testing.T) {
+	html := "<h1>中文测试</h1>"
+
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/home/printpaperFromHtml" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("failed to read request body: %v", err)
+		}
+
+		form, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatalf("failed to parse form body: %v", err)
+		}
+
+		encoded := form.Get("printHtml")
+		if encoded == "" {
+			t.Fatal("printHtml is empty")
+		}
+
+		gbkBytes, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatalf("printHtml is not valid base64: %v", err)
+		}
+
+		decoded, _, err := transform.Bytes(simplifiedchinese.GBK.NewDecoder(), gbkBytes)
+		if err != nil {
+			t.Fatalf("printHtml is not GBK decodable: %v", err)
+		}
+
+		if !bytes.Equal(decoded, []byte(html)) {
+			t.Fatalf("decoded HTML mismatch: got %q, want %q", string(decoded), html)
 		}
 
 		resp := PrintResponse{
@@ -164,7 +201,7 @@ func TestClient_PrintFromHTML(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	resp, err := client.PrintFromHTML(context.Background(), "<h1>Hello</h1>")
+	resp, err := client.PrintFromHTML(context.Background(), html)
 	if err != nil {
 		t.Fatalf("PrintFromHTML() error = %v", err)
 	}
