@@ -42,6 +42,11 @@ type BaseResponse struct {
 	ShowAPIResError string `json:"showapi_res_error"`
 }
 
+type apiResponse interface {
+	IsSuccess() bool
+	Error() string
+}
+
 func (r *BaseResponse) IsSuccess() bool {
 	return r.ShowAPIResCode == 1
 }
@@ -124,27 +129,36 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, params url.Valu
 	return body, nil
 }
 
+func postFormJSON[T any](ctx context.Context, c *Client, endpoint string, params url.Values, action string) (*T, error) {
+	body, err := c.doRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp T
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	apiResp, ok := any(&resp).(apiResponse)
+	if !ok {
+		return nil, fmt.Errorf("response type %T does not implement apiResponse", resp)
+	}
+
+	if !apiResp.IsSuccess() {
+		return nil, fmt.Errorf("%s failed: %s", action, apiResp.Error())
+	}
+
+	return &resp, nil
+}
+
 // BindUser binds a user identifier to the current device, returning the assigned user ID.
 func (c *Client) BindUser(ctx context.Context, userIdentifying string) (*BindResponse, error) {
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
 	params.Set("useridentifying", userIdentifying)
 
-	body, err := c.doRequest(ctx, "/home/setuserbind", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp BindResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("bind failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[BindResponse](ctx, c, "/home/setuserbind", params, "bind")
 }
 
 // GetPrintStatus retrieves the print status for a given print content ID.
@@ -152,21 +166,7 @@ func (c *Client) GetPrintStatus(ctx context.Context, printContentID int) (*Print
 	params := url.Values{}
 	params.Set("printcontentid", fmt.Sprintf("%d", printContentID))
 
-	body, err := c.doRequest(ctx, "/home/getprintstatus", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp PrintStatusResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("get status failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[PrintStatusResponse](ctx, c, "/home/getprintstatus", params, "get status")
 }
 
 // ConvertToMonochrome converts a base64-encoded image to monochrome format suitable for thermal printing.
@@ -174,21 +174,7 @@ func (c *Client) ConvertToMonochrome(ctx context.Context, imgBase64 string) (*Im
 	params := url.Values{}
 	params.Set("imgBase64String", imgBase64)
 
-	body, err := c.doRequest(ctx, "/home/getSignalBase64Pic", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp ImageConvertResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("image conversion failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[ImageConvertResponse](ctx, c, "/home/getSignalBase64Pic", params, "image conversion")
 }
 
 // PrintText prints plain text content to the thermal printer.
@@ -207,21 +193,7 @@ func (c *Client) PrintText(ctx context.Context, text string) (*PrintResponse, er
 	params.Set("userID", fmt.Sprintf("%d", c.userID))
 	params.Set("printcontent", printContent)
 
-	body, err := c.doRequest(ctx, "/home/printpaper", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp PrintResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("print text failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[PrintResponse](ctx, c, "/home/printpaper", params, "print text")
 }
 
 // PrintFromURL prints content from a web page by providing its URL to the print service.
@@ -231,21 +203,7 @@ func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintRespon
 	params.Set("userID", fmt.Sprintf("%d", c.userID))
 	params.Set("printUrl", pageURL)
 
-	body, err := c.doRequest(ctx, "/home/printpaperFromUrl", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp PrintResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("print from URL failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromUrl", params, "print from URL")
 }
 
 // PrintFromHTML prints HTML content directly to the thermal printer.
@@ -261,21 +219,7 @@ func (c *Client) PrintFromHTML(ctx context.Context, html string) (*PrintResponse
 	params.Set("userID", fmt.Sprintf("%d", c.userID))
 	params.Set("printHtml", encoded)
 
-	body, err := c.doRequest(ctx, "/home/printpaperFromHtml", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp PrintResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("print from HTML failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromHtml", params, "print from HTML")
 }
 
 // PrintImage prints a base64-encoded image (will be converted to monochrome by API)
@@ -294,21 +238,7 @@ func (c *Client) PrintImage(ctx context.Context, imgBase64 string) (*PrintRespon
 	params.Set("userID", fmt.Sprintf("%d", c.userID))
 	params.Set("printcontent", printContent)
 
-	body, err := c.doRequest(ctx, "/home/printpaper", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp PrintResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("print image failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[PrintResponse](ctx, c, "/home/printpaper", params, "print image")
 }
 
 // PrintImageProcessed prints a pre-processed base64 image (already 384px wide monochrome)
@@ -327,21 +257,7 @@ func (c *Client) PrintImageProcessed(ctx context.Context, processedImgBase64 str
 	params.Set("userID", fmt.Sprintf("%d", c.userID))
 	params.Set("printcontent", printContent)
 
-	body, err := c.doRequest(ctx, "/home/printpaper", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp PrintResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("print image failed: %s", resp.Error())
-	}
-
-	return &resp, nil
+	return postFormJSON[PrintResponse](ctx, c, "/home/printpaper", params, "print image")
 }
 
 // SetUserID sets the user ID for subsequent print requests.
