@@ -14,7 +14,18 @@ import (
 const (
 	// Memobird thermal printer width in pixels (slightly wider to use edge margins)
 	PrinterWidth = 400
+
+	// MaxRenderHeight is the maximum allowed page height for rendering.
+	MaxRenderHeight = 2000
+
+	// MaxRenderPixels is the maximum allowed total page pixels for rendering.
+	MaxRenderPixels = PrinterWidth * MaxRenderHeight
 )
+
+type renderBounds struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
 
 // Renderer handles rendering web content to images using headless Chrome.
 type Renderer struct {
@@ -176,6 +187,59 @@ func ValidateURL(pageURL string) error {
 	return nil
 }
 
+func validateRenderBounds(width, height int) error {
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("invalid render bounds: %dx%d", width, height)
+	}
+
+	if height > MaxRenderHeight {
+		return fmt.Errorf("render height %dpx exceeds max %dpx", height, MaxRenderHeight)
+	}
+
+	pixelCount := int64(width) * int64(height)
+	if pixelCount > MaxRenderPixels {
+		return fmt.Errorf("render area %dpx exceeds max %dpx (%dx%d)", pixelCount, MaxRenderPixels, width, height)
+	}
+
+	return nil
+}
+
+func (r *Renderer) validateCurrentPageBounds(ctx context.Context) error {
+	var bounds renderBounds
+	err := chromedp.Evaluate(`(() => {
+		const doc = document.documentElement;
+		const body = document.body;
+		const width = Math.ceil(Math.max(
+			doc ? doc.scrollWidth : 0,
+			doc ? doc.offsetWidth : 0,
+			doc ? doc.clientWidth : 0,
+			body ? body.scrollWidth : 0,
+			body ? body.offsetWidth : 0,
+			body ? body.clientWidth : 0,
+			window.innerWidth || 0
+		));
+		const height = Math.ceil(Math.max(
+			doc ? doc.scrollHeight : 0,
+			doc ? doc.offsetHeight : 0,
+			doc ? doc.clientHeight : 0,
+			body ? body.scrollHeight : 0,
+			body ? body.offsetHeight : 0,
+			body ? body.clientHeight : 0,
+			window.innerHeight || 0
+		));
+		return { width, height };
+	})()`, &bounds).Do(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate page bounds: %w", err)
+	}
+
+	if err := validateRenderBounds(bounds.Width, bounds.Height); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // RenderURLToImage renders a webpage to a PNG image (base64 encoded)
 // Uses 2x scale for sharper text on thermal printers
 func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string, error) {
@@ -222,6 +286,7 @@ func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string
 			return chromedp.Evaluate(script, nil).Do(ctx)
 		}),
 		chromedp.Sleep(r.renderDelay),
+		chromedp.ActionFunc(r.validateCurrentPageBounds),
 		chromedp.FullScreenshot(&buf, 100),
 	)
 	if err != nil {
@@ -275,6 +340,7 @@ img { max-width: 100%%; height: auto; }
 			return chromedp.Evaluate(fmt.Sprintf(`document.documentElement.innerHTML = %q`, wrappedHTML), nil).Do(ctx)
 		}),
 		chromedp.Sleep(r.renderDelay),
+		chromedp.ActionFunc(r.validateCurrentPageBounds),
 		chromedp.FullScreenshot(&buf, 100),
 	)
 	if err != nil {

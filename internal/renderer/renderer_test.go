@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strings"
 	"testing"
 	"time"
 )
@@ -176,6 +177,68 @@ func TestNewRendererWithOptions(t *testing.T) {
 func TestPrinterWidth(t *testing.T) {
 	if PrinterWidth != 400 {
 		t.Errorf("PrinterWidth = %d, want 400", PrinterWidth)
+	}
+}
+
+func TestRenderBoundaryConstants(t *testing.T) {
+	if MaxRenderHeight != 2000 {
+		t.Errorf("MaxRenderHeight = %d, want 2000", MaxRenderHeight)
+	}
+
+	if MaxRenderPixels != PrinterWidth*MaxRenderHeight {
+		t.Errorf("MaxRenderPixels = %d, want %d", MaxRenderPixels, PrinterWidth*MaxRenderHeight)
+	}
+}
+
+func TestValidateRenderBounds(t *testing.T) {
+	tests := []struct {
+		name        string
+		width       int
+		height      int
+		wantError   bool
+		errorSubstr string
+	}{
+		{
+			name:      "within limits",
+			width:     PrinterWidth,
+			height:    MaxRenderHeight,
+			wantError: false,
+		},
+		{
+			name:        "height exceeds limit",
+			width:       PrinterWidth,
+			height:      MaxRenderHeight + 1,
+			wantError:   true,
+			errorSubstr: "render height",
+		},
+		{
+			name:        "pixel count exceeds limit",
+			width:       PrinterWidth + 1,
+			height:      MaxRenderHeight,
+			wantError:   true,
+			errorSubstr: "render area",
+		},
+		{
+			name:        "invalid zero width",
+			width:       0,
+			height:      100,
+			wantError:   true,
+			errorSubstr: "invalid render bounds",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRenderBounds(tt.width, tt.height)
+			if (err != nil) != tt.wantError {
+				t.Errorf("validateRenderBounds() error = %v, wantError %v", err, tt.wantError)
+				return
+			}
+
+			if tt.errorSubstr != "" && (err == nil || !strings.Contains(err.Error(), tt.errorSubstr)) {
+				t.Errorf("validateRenderBounds() error = %v, want substring %q", err, tt.errorSubstr)
+			}
+		})
 	}
 }
 
