@@ -95,7 +95,24 @@ make build
 make test
 ```
 
+### Recommended verification flow
+
+For a fresh machine or device, the smoothest validation order is:
+
+1. configure credentials
+2. run `make bind USER=...`
+3. verify text mode with a short ASCII sample
+4. verify real-world output with `make print-html-img HTML="$(cat examples/sample-note.html)"`
+
+Image mode is the safest default when testing Chinese text or more complex layouts.
+
 ## Usage
+
+### Examples
+
+- See [`examples/README.md`](examples/README.md) for ready-to-run CLI examples.
+- Use [`examples/sample-note.html`](examples/sample-note.html) to verify image-mode printing quickly.
+- Use [`examples/quickstart.sh`](examples/quickstart.sh) as a copy-paste starting point for local testing.
 
 ### Command Line Options
 
@@ -149,6 +166,7 @@ For stable Chinese output, prefer `-print-html-img` (image mode).
 
 # Image mode (full layout support)
 ./memobird -config config.yaml -print-html-img "<html><body><h1>Hello!</h1></body></html>"
+./memobird -config config.yaml -print-html-img "$(cat examples/sample-note.html)"
 ```
 
 ### Rendering Modes
@@ -224,6 +242,13 @@ The Memobird API client supports:
 | `GetPrintStatus` | Check print status |
 | `SetUserID` | Set active user ID in client |
 | `GetUserID` | Get active user ID from client |
+
+## Troubleshooting
+
+- `user_id not configured` — run `make bind USER=...` first, or provide `memobird.user_id` / `MEMOBIRD_USER_ID`.
+- Blank output in `-print-text` mode — expected on some device/firmware combinations; prefer `-print-html-img`.
+- Missing `config.yaml` — supported if the required environment variables are set.
+- Rendering failures — ensure Chrome or Chromium is installed and runnable in the current environment.
 
 ### Endpoint Mapping
 
