@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -78,6 +79,54 @@ func TestInitUserBindingIgnoresStoredBindingForDifferentDevice(t *testing.T) {
 	}
 	if got := client.GetUserID(); got != 0 {
 		t.Fatalf("client.GetUserID() = %d, want 0", got)
+	}
+}
+
+func TestRequireBoundUser(t *testing.T) {
+	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
+
+	err := requireBoundUser(client)
+	if err == nil {
+		t.Fatal("requireBoundUser() error = nil, want error")
+	}
+
+	client.SetUserID(5)
+	if err := requireBoundUser(client); err != nil {
+		t.Fatalf("requireBoundUser() error = %v", err)
+	}
+}
+
+func TestRunPrintURLValidatesBeforeNetworkCall(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
+	client.SetUserID(5)
+
+	err := runPrintURL(context.Background(), client, "mailto:test@example.com", logger)
+	if err == nil {
+		t.Fatal("runPrintURL() error = nil, want validation error")
+	}
+	if !errors.Is(err, err) && err.Error() == "" {
+		t.Fatal("runPrintURL() returned empty error")
+	}
+}
+
+func TestRunPrintURLRequiresBinding(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
+
+	err := runPrintURL(context.Background(), client, "https://example.com", logger)
+	if err == nil {
+		t.Fatal("runPrintURL() error = nil, want binding error")
+	}
+}
+
+func TestRunPrintHTMLRequiresBinding(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
+
+	err := runPrintHTML(context.Background(), client, "<html></html>", logger)
+	if err == nil {
+		t.Fatal("runPrintHTML() error = nil, want binding error")
 	}
 }
 
