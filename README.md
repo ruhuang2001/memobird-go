@@ -32,6 +32,17 @@ cp config.example.yaml config.yaml
 # Edit config.yaml with your credentials
 ```
 
+Environment variables are also supported, which is useful for CI or env-only deployments:
+
+```bash
+export MEMOBIRD_ACCESS_KEY="your-access-key"
+export MEMOBIRD_DEVICE_ID="your-device-id"
+export MEMOBIRD_USER_ID="12345"            # optional
+export MEMOBIRD_BASE_URL="http://open.memobird.cn"  # optional
+export MEMOBIRD_TIMEOUT_SEC="30"           # optional
+export MEMOBIRD_STORAGE_DB_PATH="./memobird.db"     # optional
+```
+
 ### 3. Bind Device
 
 First-time setup requires binding your device:
@@ -170,6 +181,16 @@ memobird:
 storage:
   db_path: "./memobird.db"
 ```
+
+### Configuration precedence
+
+Configuration values are loaded in this order:
+
+1. built-in defaults
+2. `config.yaml`
+3. environment variables
+
+If the config file is missing, the app can still run with environment variables alone as long as the required Memobird credentials are set.
 
 ## Project Structure
 

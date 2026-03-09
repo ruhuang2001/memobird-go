@@ -1,7 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -58,14 +61,34 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	v.SetEnvPrefix("MEMOBIRD")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+
+	for _, binding := range []struct {
+		key string
+		env string
+	}{
+		{key: "memobird.access_key", env: "MEMOBIRD_ACCESS_KEY"},
+		{key: "memobird.device_id", env: "MEMOBIRD_DEVICE_ID"},
+		{key: "memobird.user_id", env: "MEMOBIRD_USER_ID"},
+		{key: "memobird.base_url", env: "MEMOBIRD_BASE_URL"},
+		{key: "memobird.timeout_sec", env: "MEMOBIRD_TIMEOUT_SEC"},
+		{key: "storage.db_path", env: "MEMOBIRD_STORAGE_DB_PATH"},
+	} {
+		if err := v.BindEnv(binding.key, binding.env); err != nil {
+			return nil, fmt.Errorf("failed to bind env %s: %w", binding.env, err)
+		}
+	}
 
 	v.SetDefault("memobird.base_url", "http://open.memobird.cn")
 	v.SetDefault("memobird.timeout_sec", 30)
 	v.SetDefault("storage.db_path", "./memobird.db")
 
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
+		var configNotFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &configNotFound) && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("failed to read config: %w", err)
+		}
 	}
 
 	var cfg Config
