@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/ruhuang2001/memobird-playground/internal/config"
@@ -39,6 +41,9 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		logger.Error("failed to load config", "error", err)
@@ -54,13 +59,13 @@ func main() {
 
 	client := memobird.NewClient(&cfg.Memobird)
 
-	if err := initUserBinding(context.Background(), cfg, client, store, logger); err != nil {
+	if err := initUserBinding(ctx, cfg, client, store, logger); err != nil {
 		logger.Error("failed to initialize user binding", "error", err)
 		os.Exit(1)
 	}
 
 	if *bindUser != "" {
-		if err := runBind(context.Background(), client, store, *bindUser, cfg.Memobird.DeviceID, logger); err != nil {
+		if err := runBind(ctx, client, store, *bindUser, cfg.Memobird.DeviceID, logger); err != nil {
 			logger.Error("bind failed", "error", err)
 			os.Exit(1)
 		}
@@ -68,7 +73,7 @@ func main() {
 	}
 
 	if *printText != "" {
-		if err := runPrintText(context.Background(), client, *printText, logger); err != nil {
+		if err := runPrintText(ctx, client, *printText, logger); err != nil {
 			logger.Error("print text failed", "error", err)
 			os.Exit(1)
 		}
@@ -76,7 +81,7 @@ func main() {
 	}
 
 	if *printURL != "" {
-		if err := runPrintURL(context.Background(), client, *printURL, logger); err != nil {
+		if err := runPrintURL(ctx, client, *printURL, logger); err != nil {
 			logger.Error("print from URL failed", "error", err)
 			os.Exit(1)
 		}
@@ -84,7 +89,7 @@ func main() {
 	}
 
 	if *printHTML != "" {
-		if err := runPrintHTML(context.Background(), client, *printHTML, logger); err != nil {
+		if err := runPrintHTML(ctx, client, *printHTML, logger); err != nil {
 			logger.Error("print from HTML failed", "error", err)
 			os.Exit(1)
 		}
@@ -95,7 +100,7 @@ func main() {
 	defer render.Close()
 
 	if *printURLAsImg != "" {
-		if err := runPrintURLAsImage(context.Background(), client, render, *printURLAsImg, logger); err != nil {
+		if err := runPrintURLAsImage(ctx, client, render, *printURLAsImg, logger); err != nil {
 			logger.Error("print URL as image failed", "error", err)
 			os.Exit(1)
 		}
@@ -103,7 +108,7 @@ func main() {
 	}
 
 	if *printHTMLAsImg != "" {
-		if err := runPrintHTMLAsImage(context.Background(), client, render, *printHTMLAsImg, logger); err != nil {
+		if err := runPrintHTMLAsImage(ctx, client, render, *printHTMLAsImg, logger); err != nil {
 			logger.Error("print HTML as image failed", "error", err)
 			os.Exit(1)
 		}
@@ -111,6 +116,14 @@ func main() {
 	}
 
 	flag.Usage()
+}
+
+func requireBoundUser(client *memobird.Client) error {
+	if client.GetUserID() == 0 {
+		return fmt.Errorf("user_id not configured, run -bind first")
+	}
+
+	return nil
 }
 
 // initUserBinding initializes the user binding from config or storage.
@@ -159,8 +172,8 @@ func runBind(ctx context.Context, client *memobird.Client, store *storage.Storag
 
 // runPrintText prints plain text using the /home/printpaper endpoint.
 func runPrintText(ctx context.Context, client *memobird.Client, text string, logger *slog.Logger) error {
-	if client.GetUserID() == 0 {
-		return fmt.Errorf("user_id not configured, run -bind first")
+	if err := requireBoundUser(client); err != nil {
+		return err
 	}
 
 	logger.Warn("print-text is experimental: some Memobird models/firmware may print blank paper", "suggestion", "use -print-html-img for stable Chinese output")
@@ -181,8 +194,8 @@ func runPrintText(ctx context.Context, client *memobird.Client, text string, log
 
 // runPrintURL prints content from a web page URL.
 func runPrintURL(ctx context.Context, client *memobird.Client, pageURL string, logger *slog.Logger) error {
-	if client.GetUserID() == 0 {
-		return fmt.Errorf("user_id not configured, run -bind first")
+	if err := requireBoundUser(client); err != nil {
+		return err
 	}
 
 	logger.Info("printing from URL", "url", pageURL)
@@ -204,8 +217,8 @@ func runPrintURL(ctx context.Context, client *memobird.Client, pageURL string, l
 
 // runPrintHTML prints HTML content directly.
 func runPrintHTML(ctx context.Context, client *memobird.Client, html string, logger *slog.Logger) error {
-	if client.GetUserID() == 0 {
-		return fmt.Errorf("user_id not configured, run -bind first")
+	if err := requireBoundUser(client); err != nil {
+		return err
 	}
 
 	logger.Info("printing HTML content", "length", len(html))
@@ -223,8 +236,8 @@ func runPrintHTML(ctx context.Context, client *memobird.Client, html string, log
 
 // runPrintURLAsImage renders a web page to an image and prints it.
 func runPrintURLAsImage(ctx context.Context, client *memobird.Client, render *renderer.Renderer, pageURL string, logger *slog.Logger) error {
-	if client.GetUserID() == 0 {
-		return fmt.Errorf("user_id not configured, run -bind first")
+	if err := requireBoundUser(client); err != nil {
+		return err
 	}
 
 	logger.Info("rendering URL to image", "url", pageURL)
@@ -261,8 +274,8 @@ func runPrintURLAsImage(ctx context.Context, client *memobird.Client, render *re
 
 // runPrintHTMLAsImage renders HTML content to an image and prints it.
 func runPrintHTMLAsImage(ctx context.Context, client *memobird.Client, render *renderer.Renderer, html string, logger *slog.Logger) error {
-	if client.GetUserID() == 0 {
-		return fmt.Errorf("user_id not configured, run -bind first")
+	if err := requireBoundUser(client); err != nil {
+		return err
 	}
 
 	logger.Info("rendering HTML to image", "length", len(html))
