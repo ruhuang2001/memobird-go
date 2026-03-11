@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -110,7 +109,7 @@ func TestRunPrintURLValidatesBeforeNetworkCall(t *testing.T) {
 	if err == nil {
 		t.Fatal("runPrintURL() error = nil, want validation error")
 	}
-	if !errors.Is(err, err) && err.Error() == "" {
+	if err.Error() == "" {
 		t.Fatal("runPrintURL() returned empty error")
 	}
 }
