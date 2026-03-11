@@ -29,6 +29,7 @@ var (
 
 var version = "dev"
 
+// main wires CLI flags, config loading, and command execution.
 func main() {
 	flag.Parse()
 
@@ -118,6 +119,7 @@ func main() {
 	flag.Usage()
 }
 
+// requireBoundUser ensures a valid user binding exists before print operations run.
 func requireBoundUser(client *memobird.Client) error {
 	if client.GetUserID() == 0 {
 		return fmt.Errorf("user_id not configured, run -bind first")

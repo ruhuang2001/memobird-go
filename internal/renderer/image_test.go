@@ -29,6 +29,7 @@ func createTestImage(width, height int) (string, error) {
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
+// TestProcessImageForPrint verifies end-to-end image preprocessing for printer output.
 func TestProcessImageForPrint(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -114,6 +115,7 @@ func TestProcessImageForPrint(t *testing.T) {
 	}
 }
 
+// TestProcessImageForPrintInvalidInput verifies malformed payloads are rejected.
 func TestProcessImageForPrintInvalidInput(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -151,6 +153,7 @@ func TestProcessImageForPrintInvalidInput(t *testing.T) {
 	}
 }
 
+// TestDitherToMonochrome verifies dithering produces stable monochrome output.
 func TestDitherToMonochrome(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -237,6 +240,7 @@ func TestDitherToMonochrome(t *testing.T) {
 	}
 }
 
+// TestTargetWidth verifies the processed image width matches printer requirements.
 func TestTargetWidth(t *testing.T) {
 	if TargetWidth != 384 {
 		t.Errorf("TargetWidth = %d, want 384", TargetWidth)
