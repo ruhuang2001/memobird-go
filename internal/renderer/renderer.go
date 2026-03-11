@@ -22,6 +22,7 @@ const (
 	MaxRenderPixels = PrinterWidth * MaxRenderHeight
 )
 
+// renderBounds holds the measured page dimensions before capture.
 type renderBounds struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
@@ -38,6 +39,7 @@ type Renderer struct {
 	closed      bool
 }
 
+// browserSession bundles the allocator and browser contexts for a reusable Chrome instance.
 type browserSession struct {
 	allocCtx      context.Context
 	allocCancel   context.CancelFunc
@@ -95,6 +97,7 @@ func (r *Renderer) Close() {
 	r.closed = true
 }
 
+// getURLBrowserContext lazily initializes and returns the browser context used for URL rendering.
 func (r *Renderer) getURLBrowserContext() (context.Context, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -117,6 +120,7 @@ func (r *Renderer) getURLBrowserContext() (context.Context, error) {
 	return r.urlSession.browserCtx, nil
 }
 
+// getHTMLBrowserContext lazily initializes and returns the browser context used for HTML rendering.
 func (r *Renderer) getHTMLBrowserContext() (context.Context, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -138,6 +142,7 @@ func (r *Renderer) getHTMLBrowserContext() (context.Context, error) {
 	return r.htmlSession.browserCtx, nil
 }
 
+// newBrowserSession creates a reusable Chrome allocator/browser session pair.
 func newBrowserSession(opts []chromedp.ExecAllocatorOption) *browserSession {
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
@@ -150,6 +155,7 @@ func newBrowserSession(opts []chromedp.ExecAllocatorOption) *browserSession {
 	}
 }
 
+// newTaskContext scopes an individual render task to both the request lifecycle and renderer timeout.
 func (r *Renderer) newTaskContext(parent context.Context, requestCtx context.Context) (context.Context, context.CancelFunc) {
 	baseCtx, baseCancel := context.WithCancel(parent)
 
@@ -187,6 +193,7 @@ func ValidateURL(pageURL string) error {
 	return nil
 }
 
+// validateRenderBounds rejects pages that exceed the configured renderer limits.
 func validateRenderBounds(width, height int) error {
 	if width <= 0 || height <= 0 {
 		return fmt.Errorf("invalid render bounds: %dx%d", width, height)
@@ -204,6 +211,7 @@ func validateRenderBounds(width, height int) error {
 	return nil
 }
 
+// validateCurrentPageBounds inspects the current page and validates it against render limits.
 func (r *Renderer) validateCurrentPageBounds(ctx context.Context) error {
 	var bounds renderBounds
 	err := chromedp.Evaluate(`(() => {

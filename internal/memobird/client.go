@@ -42,15 +42,18 @@ type BaseResponse struct {
 	ShowAPIResError string `json:"showapi_res_error"`
 }
 
+// apiResponse describes the common success/error contract shared by Memobird API responses.
 type apiResponse interface {
 	IsSuccess() bool
 	Error() string
 }
 
+// IsSuccess reports whether the API returned a successful response code.
 func (r *BaseResponse) IsSuccess() bool {
 	return r.ShowAPIResCode == 1
 }
 
+// Error returns the API-provided error message.
 func (r *BaseResponse) Error() string {
 	return r.ShowAPIResError
 }
@@ -69,6 +72,7 @@ type PrintResponse struct {
 	PrintContentID int    `json:"printcontentid"`
 }
 
+// IsPrinted reports whether the print request was accepted as printed by the API.
 func (p *PrintResponse) IsPrinted() bool {
 	return p.Result == 1
 }
@@ -80,6 +84,7 @@ type PrintStatusResponse struct {
 	PrintContentID string `json:"printcontentID"`
 }
 
+// IsPrinted reports whether the queried print job has finished printing.
 func (p *PrintStatusResponse) IsPrinted() bool {
 	return p.PrintFlag == 1
 }
@@ -129,6 +134,7 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, params url.Valu
 	return body, nil
 }
 
+// postFormJSON sends a form request and decodes a successful JSON response into the requested type.
 func postFormJSON[T any](ctx context.Context, c *Client, endpoint string, params url.Values, action string) (*T, error) {
 	body, err := c.doRequest(ctx, endpoint, params)
 	if err != nil {

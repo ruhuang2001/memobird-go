@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// TestValidateURL verifies the renderer URL guard accepts and rejects the expected schemes.
 func TestValidateURL(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -78,6 +79,7 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
+// TestNewRenderer verifies the default renderer configuration.
 func TestNewRenderer(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -118,6 +120,7 @@ func TestNewRenderer(t *testing.T) {
 	}
 }
 
+// TestNewRendererWithOptions verifies custom renderer options are preserved.
 func TestNewRendererWithOptions(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -174,12 +177,14 @@ func TestNewRendererWithOptions(t *testing.T) {
 	}
 }
 
+// TestPrinterWidth verifies the exported printer width constant remains stable.
 func TestPrinterWidth(t *testing.T) {
 	if PrinterWidth != 400 {
 		t.Errorf("PrinterWidth = %d, want 400", PrinterWidth)
 	}
 }
 
+// TestRenderBoundaryConstants verifies the render safety limits remain internally consistent.
 func TestRenderBoundaryConstants(t *testing.T) {
 	if MaxRenderHeight != 2000 {
 		t.Errorf("MaxRenderHeight = %d, want 2000", MaxRenderHeight)
@@ -190,6 +195,7 @@ func TestRenderBoundaryConstants(t *testing.T) {
 	}
 }
 
+// TestValidateRenderBounds verifies valid and invalid page sizes around the configured limits.
 func TestValidateRenderBounds(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -242,6 +248,7 @@ func TestValidateRenderBounds(t *testing.T) {
 	}
 }
 
+// TestRendererClose verifies repeated Close calls remain safe and idempotent.
 func TestRendererClose(t *testing.T) {
 	r := New(5 * time.Second)
 

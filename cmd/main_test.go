@@ -13,6 +13,7 @@ import (
 	"github.com/ruhuang2001/memobird-playground/internal/storage"
 )
 
+// TestInitUserBindingUsesConfiguredUserID verifies explicit config user IDs win over storage.
 func TestInitUserBindingUsesConfiguredUserID(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := &config.Config{
@@ -34,6 +35,7 @@ func TestInitUserBindingUsesConfiguredUserID(t *testing.T) {
 	}
 }
 
+// TestInitUserBindingLoadsStoredBindingForMatchingDevice verifies stored bindings are reused for the same device.
 func TestInitUserBindingLoadsStoredBindingForMatchingDevice(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := &config.Config{
@@ -58,6 +60,7 @@ func TestInitUserBindingLoadsStoredBindingForMatchingDevice(t *testing.T) {
 	}
 }
 
+// TestInitUserBindingIgnoresStoredBindingForDifferentDevice verifies mismatched stored bindings are ignored.
 func TestInitUserBindingIgnoresStoredBindingForDifferentDevice(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := &config.Config{
@@ -82,6 +85,7 @@ func TestInitUserBindingIgnoresStoredBindingForDifferentDevice(t *testing.T) {
 	}
 }
 
+// TestRequireBoundUser verifies the helper rejects missing user bindings and accepts configured ones.
 func TestRequireBoundUser(t *testing.T) {
 	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
 
@@ -96,6 +100,7 @@ func TestRequireBoundUser(t *testing.T) {
 	}
 }
 
+// TestRunPrintURLValidatesBeforeNetworkCall verifies URL validation fails before any network dependency is needed.
 func TestRunPrintURLValidatesBeforeNetworkCall(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
@@ -110,6 +115,7 @@ func TestRunPrintURLValidatesBeforeNetworkCall(t *testing.T) {
 	}
 }
 
+// TestRunPrintURLRequiresBinding verifies URL printing refuses to run without a bound user.
 func TestRunPrintURLRequiresBinding(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
@@ -120,6 +126,7 @@ func TestRunPrintURLRequiresBinding(t *testing.T) {
 	}
 }
 
+// TestRunPrintHTMLRequiresBinding verifies HTML printing refuses to run without a bound user.
 func TestRunPrintHTMLRequiresBinding(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	client := memobird.NewClient(&config.MemobirdConfig{AccessKey: "ak", DeviceID: "device-a"})
@@ -130,6 +137,7 @@ func TestRunPrintHTMLRequiresBinding(t *testing.T) {
 	}
 }
 
+// newTestStore creates a temporary SQLite-backed store for command tests.
 func newTestStore(t *testing.T) *storage.Storage {
 	t.Helper()
 

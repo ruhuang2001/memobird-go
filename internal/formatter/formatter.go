@@ -40,6 +40,7 @@ func EncodeHTMLToUTF8Base64(html string) string {
 	return base64.StdEncoding.EncodeToString([]byte(html))
 }
 
+// DecodeGBKBase64ToText decodes a GBK-encoded Base64 string back into UTF-8 text.
 func DecodeGBKBase64ToText(encoded string) (string, error) {
 	gbkBytes, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {

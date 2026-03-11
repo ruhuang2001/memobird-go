@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestStorageReturnsZeroValuesWhenEmpty verifies empty databases behave like missing bindings.
 func TestStorageReturnsZeroValuesWhenEmpty(t *testing.T) {
 	store := newTestStorage(t)
 	t.Cleanup(func() { _ = store.Close() })
@@ -19,6 +20,7 @@ func TestStorageReturnsZeroValuesWhenEmpty(t *testing.T) {
 	}
 }
 
+// TestStorageSaveAndLoadBinding verifies a stored binding can be read back intact.
 func TestStorageSaveAndLoadBinding(t *testing.T) {
 	store := newTestStorage(t)
 	t.Cleanup(func() { _ = store.Close() })
@@ -36,6 +38,7 @@ func TestStorageSaveAndLoadBinding(t *testing.T) {
 	}
 }
 
+// TestStorageSaveReplacesExistingBinding verifies the single binding row is updated atomically.
 func TestStorageSaveReplacesExistingBinding(t *testing.T) {
 	store := newTestStorage(t)
 	t.Cleanup(func() { _ = store.Close() })
@@ -57,6 +60,7 @@ func TestStorageSaveReplacesExistingBinding(t *testing.T) {
 	}
 }
 
+// newTestStorage creates an isolated SQLite store for storage tests.
 func newTestStorage(t *testing.T) *Storage {
 	t.Helper()
 

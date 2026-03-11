@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// TestLoadFromFile verifies structured values are loaded from a config file.
 func TestLoadFromFile(t *testing.T) {
 	t.Setenv("MEMOBIRD_ACCESS_KEY", "")
 	t.Setenv("MEMOBIRD_DEVICE_ID", "")
@@ -44,6 +45,7 @@ func TestLoadFromFile(t *testing.T) {
 	}
 }
 
+// TestLoadAllowsEnvOnlyConfiguration verifies required config can come entirely from environment variables.
 func TestLoadAllowsEnvOnlyConfiguration(t *testing.T) {
 	t.Setenv("MEMOBIRD_ACCESS_KEY", "env-ak")
 	t.Setenv("MEMOBIRD_DEVICE_ID", "env-device")
@@ -74,6 +76,7 @@ func TestLoadAllowsEnvOnlyConfiguration(t *testing.T) {
 	}
 }
 
+// TestLoadEnvOverridesFile verifies environment variables take precedence over file values.
 func TestLoadEnvOverridesFile(t *testing.T) {
 	t.Setenv("MEMOBIRD_ACCESS_KEY", "env-ak")
 	t.Setenv("MEMOBIRD_DEVICE_ID", "env-device")
@@ -98,6 +101,7 @@ func TestLoadEnvOverridesFile(t *testing.T) {
 	}
 }
 
+// TestLoadValidationFailure verifies missing required configuration is still rejected.
 func TestLoadValidationFailure(t *testing.T) {
 	t.Setenv("MEMOBIRD_ACCESS_KEY", "")
 	t.Setenv("MEMOBIRD_DEVICE_ID", "")

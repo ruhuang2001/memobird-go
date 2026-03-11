@@ -33,6 +33,7 @@ func newTestClient(serverURL string) *Client {
 	return NewClient(cfg)
 }
 
+// TestClient_BindUser verifies the bind endpoint response is decoded correctly.
 func TestClient_BindUser(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/home/setuserbind" {
@@ -65,6 +66,7 @@ func TestClient_BindUser(t *testing.T) {
 	}
 }
 
+// TestClient_GetPrintStatus verifies print status polling works against the API contract.
 func TestClient_GetPrintStatus(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/home/getprintstatus" {
@@ -94,6 +96,7 @@ func TestClient_GetPrintStatus(t *testing.T) {
 	}
 }
 
+// TestClient_ConvertToMonochrome verifies image conversion responses are parsed correctly.
 func TestClient_ConvertToMonochrome(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/home/getSignalBase64Pic" {
@@ -122,6 +125,7 @@ func TestClient_ConvertToMonochrome(t *testing.T) {
 	}
 }
 
+// TestClient_PrintFromURL verifies URL printing requests succeed against the expected endpoint.
 func TestClient_PrintFromURL(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/home/printpaperFromUrl" {
@@ -151,6 +155,7 @@ func TestClient_PrintFromURL(t *testing.T) {
 	}
 }
 
+// TestClient_PrintFromHTML verifies HTML payloads are encoded and sent correctly.
 func TestClient_PrintFromHTML(t *testing.T) {
 	html := "<h1>中文测试</h1>"
 
@@ -211,6 +216,7 @@ func TestClient_PrintFromHTML(t *testing.T) {
 	}
 }
 
+// TestClient_PrintFromURL_Failure verifies API-level failures surface as Go errors.
 func TestClient_PrintFromURL_Failure(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		resp := PrintResponse{
@@ -230,6 +236,7 @@ func TestClient_PrintFromURL_Failure(t *testing.T) {
 	}
 }
 
+// TestBaseResponse_IsSuccess verifies success detection mirrors the Memobird API contract.
 func TestBaseResponse_IsSuccess(t *testing.T) {
 	tests := []struct {
 		code int
