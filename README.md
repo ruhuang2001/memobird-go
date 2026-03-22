@@ -1,319 +1,203 @@
 # Memobird Playground
 
-A collection of tools for interacting with Memobird thermal printers.
+A small Go CLI for binding a Memobird device and printing via the official Memobird Web API.
 
-## Features
+## What This Project Supports
 
-- Print plain text (GBK text mode, experimental)
-- Print from URL (text mode)
-- Print HTML content (text mode)
-- **Print from URL as image** (better text rendering)
-- **Print HTML as image** (full layout support)
+- Bind device to a user identifier
+- Print from URL via Memobird server-side rendering
+- Print raw HTML via Memobird text/HTML endpoint
+- Print URL as image via local Chrome rendering
+- Print HTML as image via local Chrome rendering
+
+Recommended default:
+- Prefer `-print-url-img` and `-print-html-img`
+- `-print-url` and `-print-html` depend on Memobird server-side rendering and modern pages may submit successfully but still print blank paper
+
+## What This Project Intentionally Does Not Support
+
+Plain `-print-text` mode has been removed.
+
+Reason:
+- The official PDF still documents `/home/printpaper` with `printcontent=T:...`.
+- In practice, that path is unreliable on current devices/firmware and can accept the request but print blank paper.
+- This project now keeps the more stable paths only.
+
+Official reference:
+- Memobird Web API PDF: <https://open.memobird.cn/upload/webapi.pdf>
 
 ## Prerequisites
 
 - Go 1.24+
-- Chrome or Chromium (for image rendering)
-- A Memobird device
-- Access Key from [open.memobird.cn](http://open.memobird.cn)
+- Chrome or Chromium for image rendering
+- Memobird device
+- Access key from <http://open.memobird.cn>
 
 ## Quick Start
 
-### 1. Get Your Credentials
-
-1. Register as a developer at [open.memobird.cn](http://open.memobird.cn/user/index)
-2. Get your `access_key` after approval
-3. Double-click your Memobird device to print the `device_id`
-
-### 2. Configure
+### 1. Configure credentials
 
 ```bash
 cp config.example.yaml config.yaml
-# Edit config.yaml with your credentials
 ```
 
-Environment variables are also supported, which is useful for CI or env-only deployments:
+Or use environment variables:
 
 ```bash
 export MEMOBIRD_ACCESS_KEY="your-access-key"
 export MEMOBIRD_DEVICE_ID="your-device-id"
-export MEMOBIRD_USER_ID="12345"            # optional
-export MEMOBIRD_BASE_URL="http://open.memobird.cn"  # optional
-export MEMOBIRD_TIMEOUT_SEC="30"           # optional
-export MEMOBIRD_STORAGE_DB_PATH="./memobird.db"     # optional
+export MEMOBIRD_USER_ID="12345"
+export MEMOBIRD_BASE_URL="http://open.memobird.cn"
+export MEMOBIRD_TIMEOUT_SEC="30"
+export MEMOBIRD_STORAGE_DB_PATH="./memobird.db"
 ```
 
-### 3. Bind Device
-
-First-time setup requires binding your device:
+### 2. Bind the device
 
 ```bash
 make bind USER=my-unique-identifier
+```
 
-# Or manually
+Or:
+
+```bash
 go run ./cmd -config config.yaml -bind my-unique-identifier
 ```
 
-This will output a `user_id` - add it to your `config.yaml`.
+If `memobird.user_id` is `0`, the CLI will try to reuse the locally stored binding when the stored `device_id` matches the current device.
 
-If `user_id` remains `0`, the app will try to load a previously saved binding from `storage.db_path`
-when the stored `device_id` matches your current device.
-
-### 4. Print
+### 3. Print
 
 ```bash
-# Print plain text (GBK text mode, experimental)
-make print-text TEXT="你好，世界"
-
-# Print from URL (text mode)
+# URL via Memobird server-side rendering
+# Warning: may submit successfully but print blank paper on modern pages
 make print-url URL="https://example.com"
 
-# Print HTML content (text mode)
+# HTML via Memobird server-side rendering
+# Warning: may submit successfully but print blank paper on current devices/firmware
 make print-html HTML="<html><body>Hello, Memobird!</body></html>"
 
-# Print from URL as image (better rendering)
+# Recommended: URL rendered locally to image, then printed
 make print-url-img URL="https://example.com"
 
-# Print HTML as image (full layout support)
+# Recommended: HTML rendered locally to image, then printed
 make print-html-img HTML="<html><body><h1>Hello!</h1></body></html>"
 ```
 
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/ruhuang2001/memobird-playground.git
-cd memobird-playground
-
-# Download dependencies
-go mod download
-
-# Build
-make build
-
-# Run tests
-make test
-```
-
-### Recommended verification flow
-
-For a fresh machine or device, the smoothest validation order is:
-
-1. configure credentials
-2. run `make bind USER=...`
-3. verify text mode with a short ASCII sample
-4. verify real-world output with `make print-html-img HTML="$(cat examples/sample-note.html)"`
-
-Image mode is the safest default when testing Chinese text or more complex layouts.
-
-## Usage
-
-### Examples
-
-- See [`examples/README.md`](examples/README.md) for ready-to-run CLI examples.
-- Use [`examples/sample-note.html`](examples/sample-note.html) to verify image-mode printing quickly.
-- Use [`examples/quickstart.sh`](examples/quickstart.sh) as a copy-paste starting point for local testing.
-
-### Command Line Options
+## Supported Commands
 
 ```bash
 ./memobird -h
 
-  -config string
-        path to config file
   -bind string
         bind user identifier (run once to get user_id)
-  -print-text string
-        print plain text immediately and exit (GBK text mode, experimental)
-  -print-url string
-        print from URL immediately and exit (text mode)
+  -config string
+        path to config file
   -print-html string
-        print HTML content immediately and exit (text mode)
-  -print-url-img string
-        render URL as image and print (better text rendering)
+        print HTML via Memobird server-side rendering (may print blank on current devices/firmware; prefer -print-html-img)
   -print-html-img string
-        render HTML as image and print (full layout support)
+        render HTML locally as image and print (recommended)
+  -print-url string
+        print from URL via Memobird server-side rendering (modern pages may submit successfully but print blank; prefer -print-url-img)
+  -print-url-img string
+        render URL locally as image and print (recommended)
   -version
         show version
 ```
 
-### Print from URL
+Notes:
+- `-print-url` and `-print-html` depend on Memobird server-side rendering.
+- Modern webpages may submit successfully but still print blank paper in those modes.
+- Prefer `-print-url-img` or `-print-html-img` for modern pages and reliable output.
 
-```bash
-# Text mode (original API)
-./memobird -config config.yaml -print-url "https://example.com"
+Only one action flag may be used at a time. For example, `-print-url` and `-print-html` are mutually exclusive.
 
-# Image mode (better rendering)
-./memobird -config config.yaml -print-url-img "https://example.com"
-./memobird -config config.yaml -print-url-img "http://localhost:8080"
-```
+## Rendering Modes
 
-### Print Plain Text
+### Remote text/HTML mode
 
-```bash
-./memobird -config config.yaml -print-text "你好，世界"
-./memobird -config config.yaml -print-text "第一行\n第二行"
-```
+- `-print-url`
+- `-print-html`
 
-Note: `-print-text` is experimental. Some device models/firmware may print blank output.
-For stable Chinese output, prefer `-print-html-img` (image mode).
+These rely on Memobird's server-side endpoints.
+They can return a successful submission while still producing blank paper for modern webpages or current device/firmware combinations.
+Use them only for simpler content or when you specifically need the server-side path.
 
-### Print HTML Content
+### Local image mode
 
-```bash
-# Text mode (original API)
-./memobird -config config.yaml -print-html "<html><body>Hello, Memobird!</body></html>"
+- `-print-url-img`
+- `-print-html-img`
 
-# Image mode (full layout support)
-./memobird -config config.yaml -print-html-img "<html><body><h1>Hello!</h1></body></html>"
-./memobird -config config.yaml -print-html-img "$(cat examples/sample-note.html)"
-```
+Pipeline:
+- Render with headless Chrome at 400px capture width
+- Resize to 384px printer width
+- Trim trailing blank rows from paginated screenshots to avoid wasting paper on white tail space
+- Convert to 1-bit monochrome with Floyd-Steinberg dithering
+- Submit image to Memobird for printer bitmap conversion
 
-### Rendering Modes
-
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| Text | Original API, faster | Simple text, plain content |
-| Image | Renders to PNG, better quality | Complex layouts, styling, local content |
-
-Image mode pipeline:
-- Render URL/HTML to PNG with headless Chrome (400px capture width)
-- Post-process image to 384px width (thermal printer spec)
-- Apply Floyd-Steinberg dithering for high-contrast monochrome output
-- Submit processed image to Memobird API for printer bitmap conversion
-
-Scale-factor note:
-- URL image mode uses a 2x Chrome device scale factor for sharper text capture
-- HTML image mode uses Chrome default scale factor
+Use image mode when you need better Chinese rendering or layout fidelity.
+Use image mode first when you are printing modern webpages and want the most reliable output.
 
 ## Configuration
 
-See [config.example.yaml](config.example.yaml) for all options.
+See [config.example.yaml](/Users/ruhuang/Code/Github/memobird-playground/config.example.yaml).
 
 ```yaml
 memobird:
   access_key: "your-access-key"
   device_id: "your-device-id"
-  user_id: 12345  # from -bind command (or leave 0 to load from local storage)
+  user_id: 12345
 
 storage:
   db_path: "./memobird.db"
 ```
 
-### Configuration precedence
+Configuration precedence:
 
-Configuration values are loaded in this order:
-
-1. built-in defaults
+1. Built-in defaults
 2. `config.yaml`
-3. environment variables
+3. Environment variables
 
-If the config file is missing, the app can still run with environment variables alone as long as the required Memobird credentials are set.
+Behavior notes:
+- If you do not pass `-config`, env-only startup is supported.
+- If you explicitly pass `-config /path/to/file.yaml`, that file must exist.
+
+## Examples
+
+- [examples/README.md](/Users/ruhuang/Code/Github/memobird-playground/examples/README.md)
+- [examples/sample-note.html](/Users/ruhuang/Code/Github/memobird-playground/examples/sample-note.html)
+- [examples/quickstart.sh](/Users/ruhuang/Code/Github/memobird-playground/examples/quickstart.sh)
 
 ## Project Structure
 
-```
+```text
 memobird-playground/
 ├── cmd/
-│   └── main.go              # Entry point
 ├── internal/
-│   ├── config/              # Configuration loading
-│   ├── formatter/           # GBK/UTF-8 Base64 encoding
-│   ├── memobird/            # API client
-│   ├── renderer/            # HTML/Image rendering (chromedp)
-│   └── storage/             # SQLite persistence
+│   ├── config/
+│   ├── formatter/
+│   ├── memobird/
+│   ├── renderer/
+│   └── storage/
 ├── config.example.yaml
 └── Makefile
 ```
 
-## API Reference
+## API Coverage
 
-The Memobird API client supports:
-
-| Method | Description |
-|--------|-------------|
-| `BindUser` | Bind device to user identifier |
-| `PrintText` | Print plain text via `/home/printpaper` (`T:` + GBK Base64, experimental by device model) |
-| `PrintFromURL` | Print webpage by URL (text mode) |
-| `PrintFromHTML` | Print HTML content (text mode) |
-| `ConvertToMonochrome` | Convert base64 image to printer signal format |
-| `PrintImage` | Print base64-encoded PNG image |
-| `PrintImageProcessed` | Print pre-processed monochrome image |
-| `GetPrintStatus` | Check print status |
-| `SetUserID` | Set active user ID in client |
-| `GetUserID` | Get active user ID from client |
+| Endpoint | Client Method | Notes |
+|----------|---------------|-------|
+| `/home/setuserbind` | `BindUser` | device binding |
+| `/home/printpaperFromUrl` | `PrintFromURL` | Memobird server-side URL rendering; modern pages may still print blank |
+| `/home/printpaperFromHtml` | `PrintFromHTML` | expects GBK + Base64 payload; may still print blank on current devices/firmware |
+| `/home/getSignalBase64Pic` | `ConvertToMonochrome` | image conversion helper |
+| `/home/printpaper` | `PrintImage` | image print path using `P:` prefix |
+| `/home/getprintstatus` | `GetPrintStatus` | print status polling |
 
 ## Troubleshooting
 
-- `user_id not configured` — run `make bind USER=...` first, or provide `memobird.user_id` / `MEMOBIRD_USER_ID`.
-- Blank output in `-print-text` mode — expected on some device/firmware combinations; prefer `-print-html-img`.
-- Missing `config.yaml` — supported if the required environment variables are set.
-- Rendering failures — ensure Chrome or Chromium is installed and runnable in the current environment.
-
-### Endpoint Mapping
-
-| Endpoint | Client Method(s) | Notes |
-|----------|------------------|-------|
-| `/home/setuserbind` | `BindUser` | First-time device binding |
-| `/home/printpaper` | `PrintText`, `PrintImage`, `PrintImageProcessed` | Uses `printcontent` prefix: `T:` text, `P:` image |
-| `/home/printpaperFromUrl` | `PrintFromURL` | Server-side fetch; external assets may fail to load |
-| `/home/printpaperFromHtml` | `PrintFromHTML` | Expects HTML payload encoded as GBK + Base64 |
-| `/home/getSignalBase64Pic` | `ConvertToMonochrome` | Converts image to printer signal bitmap |
-| `/home/getprintstatus` | `GetPrintStatus` | Poll print status by `printcontentid` |
-
-### Compatibility Notes
-
-- `-print-text` is experimental: some Memobird models/firmware accept request but print blank paper.
-- For stable Chinese output, prefer image mode (`-print-html-img` / `-print-url-img`).
-- `PrintFromHTML` now uses GBK Base64 as required by official docs, but service-side rendering can still vary.
-- If text HTML mode renders Chinese incorrectly, use HTML entities (`&#20013;&#25991;`) or switch to image mode.
-- `PrintFromURL` text mode depends on server-side page fetching; dynamic JS and some images may not render.
-
-### CLI Coverage
-
-CLI currently exposes printing and binding flows. `GetPrintStatus` and `ConvertToMonochrome` are available in the
-`internal/memobird` client for programmatic integration but are not exposed as standalone CLI flags yet.
-
-### Renderer Package
-
-The `renderer` package provides HTML-to-image conversion:
-
-```go
-import "github.com/ruhuang2001/memobird-playground/internal/renderer"
-
-// Create renderer with 30s timeout
-r := renderer.New(30 * time.Second)
-
-// Render URL to PNG (base64)
-imgBase64, err := r.RenderURLToImage(ctx, "https://example.com")
-
-// Render HTML to PNG (base64)
-imgBase64, err := r.RenderHTMLToImage(ctx, "<html>...</html>")
-
-// Process image for thermal printer (resize to 384px, then monochrome+dither)
-processed, err := renderer.ProcessImageForPrint(imgBase64)
-
-// Validate URL (http/https only)
-err := renderer.ValidateURL("https://example.com")
-```
-
-## Environment Variables
-
-Environment variables override values loaded from config file.
-
-Note: the current loader still requires a readable config file (`config.yaml` by default, or `-config` path).
-
-Configuration keys that support environment overrides:
-
-| Variable | Description |
-|----------|-------------|
-| `MEMOBIRD_MEMOBIRD_ACCESS_KEY` | Access key |
-| `MEMOBIRD_MEMOBIRD_DEVICE_ID` | Device ID |
-| `MEMOBIRD_MEMOBIRD_USER_ID` | User ID |
-| `MEMOBIRD_MEMOBIRD_BASE_URL` | API base URL |
-| `MEMOBIRD_MEMOBIRD_TIMEOUT_SEC` | Request timeout in seconds |
-| `MEMOBIRD_STORAGE_DB_PATH` | Database path |
-
-## License
-
-MIT
+- `user_id not configured`: run `make bind USER=...` first, or set `memobird.user_id` / `MEMOBIRD_USER_ID`.
+- `config file ... not found`: you passed `-config` explicitly and the file does not exist.
+- Rendering failures: ensure Chrome or Chromium is installed and runnable.
+- URL validation failed: only `http` and `https` URLs with a non-empty host are accepted.
+- `-print-url` / `-print-html` submitted successfully but printed blank paper: expected on some current Memobird server-side rendering paths; retry with `-print-url-img` or `-print-html-img`.

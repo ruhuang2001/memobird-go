@@ -2,7 +2,6 @@
 set -euo pipefail
 
 # Option 1: use config.yaml
-./memobird -config config.yaml -print-text "你好，世界"
 ./memobird -config config.yaml -print-html-img "$(cat examples/sample-note.html)"
 
 # Option 2: env-only mode

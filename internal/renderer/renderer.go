@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
@@ -22,10 +23,20 @@ const (
 	MaxRenderPixels = PrinterWidth * MaxRenderHeight
 )
 
+const (
+	urlRendererKind  = "url"
+	htmlRendererKind = "html"
+)
+
 // renderBounds holds the measured page dimensions before capture.
 type renderBounds struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
+}
+
+type renderSegment struct {
+	OffsetY int
+	Height  int
 }
 
 // Renderer handles rendering web content to images using headless Chrome.
@@ -82,46 +93,23 @@ func (r *Renderer) Close() {
 		return
 	}
 
-	if r.urlSession != nil {
-		r.urlSession.browserCancel()
-		r.urlSession.allocCancel()
-		r.urlSession = nil
-	}
-
-	if r.htmlSession != nil {
-		r.htmlSession.browserCancel()
-		r.htmlSession.allocCancel()
-		r.htmlSession = nil
-	}
-
+	r.closeSession(&r.urlSession)
+	r.closeSession(&r.htmlSession)
 	r.closed = true
 }
 
-// getURLBrowserContext lazily initializes and returns the browser context used for URL rendering.
-func (r *Renderer) getURLBrowserContext() (context.Context, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return nil, fmt.Errorf("renderer is closed")
+func (r *Renderer) closeSession(session **browserSession) {
+	if *session == nil {
+		return
 	}
 
-	if r.urlSession == nil {
-		opts := append(chromedp.DefaultExecAllocatorOptions[:],
-			chromedp.Flag("headless", true),
-			chromedp.Flag("disable-gpu", true),
-			chromedp.Flag("no-sandbox", true),
-			chromedp.Flag("force-device-scale-factor", "2"),
-			chromedp.WindowSize(PrinterWidth, 800),
-		)
-		r.urlSession = newBrowserSession(opts)
-	}
-
-	return r.urlSession.browserCtx, nil
+	(*session).browserCancel()
+	(*session).allocCancel()
+	*session = nil
 }
 
-// getHTMLBrowserContext lazily initializes and returns the browser context used for HTML rendering.
-func (r *Renderer) getHTMLBrowserContext() (context.Context, error) {
+// getBrowserContext lazily initializes and returns the browser context for the requested renderer kind.
+func (r *Renderer) getBrowserContext(kind string) (context.Context, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -129,17 +117,37 @@ func (r *Renderer) getHTMLBrowserContext() (context.Context, error) {
 		return nil, fmt.Errorf("renderer is closed")
 	}
 
-	if r.htmlSession == nil {
-		opts := append(chromedp.DefaultExecAllocatorOptions[:],
-			chromedp.Flag("headless", true),
-			chromedp.Flag("disable-gpu", true),
-			chromedp.Flag("no-sandbox", true),
-			chromedp.WindowSize(PrinterWidth, 800),
-		)
-		r.htmlSession = newBrowserSession(opts)
+	sessionPtr, opts, err := r.sessionForKind(kind)
+	if err != nil {
+		return nil, err
 	}
 
-	return r.htmlSession.browserCtx, nil
+	if *sessionPtr == nil {
+		*sessionPtr = newBrowserSession(opts)
+	}
+
+	return (*sessionPtr).browserCtx, nil
+}
+
+func (r *Renderer) sessionForKind(kind string) (**browserSession, []chromedp.ExecAllocatorOption, error) {
+	baseOpts := []chromedp.ExecAllocatorOption{
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.WindowSize(PrinterWidth, 800),
+	}
+
+	switch kind {
+	case urlRendererKind:
+		opts := append(chromedp.DefaultExecAllocatorOptions[:], baseOpts...)
+		opts = append(opts, chromedp.Flag("force-device-scale-factor", "2"))
+		return &r.urlSession, opts, nil
+	case htmlRendererKind:
+		opts := append(chromedp.DefaultExecAllocatorOptions[:], baseOpts...)
+		return &r.htmlSession, opts, nil
+	default:
+		return nil, nil, fmt.Errorf("unknown renderer kind: %s", kind)
+	}
 }
 
 // newBrowserSession creates a reusable Chrome allocator/browser session pair.
@@ -185,9 +193,12 @@ func ValidateURL(pageURL string) error {
 		return fmt.Errorf("invalid URL format: %w", err)
 	}
 
-	// Only allow http and https schemes
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return fmt.Errorf("unsupported URL scheme: %s (only http/https allowed)", parsedURL.Scheme)
+	}
+
+	if parsedURL.Hostname() == "" {
+		return fmt.Errorf("URL host is required")
 	}
 
 	return nil
@@ -211,10 +222,65 @@ func validateRenderBounds(width, height int) error {
 	return nil
 }
 
-// validateCurrentPageBounds inspects the current page and validates it against render limits.
-func (r *Renderer) validateCurrentPageBounds(ctx context.Context) error {
+func validateMeasuredBounds(bounds renderBounds) error {
+	if bounds.Width <= 0 || bounds.Height <= 0 {
+		return fmt.Errorf("invalid render bounds: %dx%d", bounds.Width, bounds.Height)
+	}
+	if bounds.Width > MaxRenderPixels {
+		return fmt.Errorf("render width %dpx exceeds max supported width %dpx", bounds.Width, MaxRenderPixels)
+	}
+	return nil
+}
+
+func segmentHeightForWidth(width int) (int, error) {
+	if width <= 0 {
+		return 0, fmt.Errorf("invalid render width: %d", width)
+	}
+
+	maxByPixels := MaxRenderPixels / width
+	if maxByPixels <= 0 {
+		return 0, fmt.Errorf("render width %dpx exceeds max supported width %dpx", width, MaxRenderPixels)
+	}
+
+	maxByProcessed := (MaxRenderHeight * width) / TargetWidth
+	if maxByProcessed <= 0 {
+		return 0, fmt.Errorf("render width %dpx is too small for processed output", width)
+	}
+
+	segmentHeight := minInt(MaxRenderHeight, maxByPixels)
+	segmentHeight = minInt(segmentHeight, maxByProcessed)
+	if segmentHeight <= 0 {
+		return 0, fmt.Errorf("invalid segment height for width %d", width)
+	}
+
+	return segmentHeight, nil
+}
+
+func splitRenderBounds(bounds renderBounds) ([]renderSegment, error) {
+	if err := validateMeasuredBounds(bounds); err != nil {
+		return nil, err
+	}
+
+	segmentHeight, err := segmentHeightForWidth(bounds.Width)
+	if err != nil {
+		return nil, err
+	}
+
+	segments := make([]renderSegment, 0, (bounds.Height+segmentHeight-1)/segmentHeight)
+	for offset := 0; offset < bounds.Height; offset += segmentHeight {
+		height := minInt(segmentHeight, bounds.Height-offset)
+		if err := validateRenderBounds(bounds.Width, height); err != nil {
+			return nil, err
+		}
+		segments = append(segments, renderSegment{OffsetY: offset, Height: height})
+	}
+
+	return segments, nil
+}
+
+func measureCurrentPageBounds(ctx context.Context) (renderBounds, error) {
 	var bounds renderBounds
-	err := chromedp.Evaluate(`(() => {
+	err := chromedp.Run(ctx, chromedp.Evaluate(`(() => {
 		const doc = document.documentElement;
 		const body = document.body;
 		const width = Math.ceil(Math.max(
@@ -236,24 +302,40 @@ func (r *Renderer) validateCurrentPageBounds(ctx context.Context) error {
 			window.innerHeight || 0
 		));
 		return { width, height };
-	})()`, &bounds).Do(ctx)
+	})()`, &bounds))
 	if err != nil {
-		return fmt.Errorf("failed to evaluate page bounds: %w", err)
+		return renderBounds{}, fmt.Errorf("failed to evaluate page bounds: %w", err)
 	}
 
-	if err := validateRenderBounds(bounds.Width, bounds.Height); err != nil {
-		return err
-	}
-
-	return nil
+	return bounds, nil
 }
 
-// RenderURLToImage renders a webpage to a PNG image (base64 encoded)
-// Uses 2x scale for sharper text on thermal printers
-func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string, error) {
-	browserCtx, err := r.getURLBrowserContext()
+func captureSegment(ctx context.Context, width int, segment renderSegment) (string, error) {
+	clip := &page.Viewport{
+		X:      0,
+		Y:      float64(segment.OffsetY),
+		Width:  float64(width),
+		Height: float64(segment.Height),
+		Scale:  1,
+	}
+
+	var data []byte
+	err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		var err error
+		data, err = page.CaptureScreenshot().WithFormat(page.CaptureScreenshotFormatPng).WithFromSurface(true).WithClip(clip).Do(ctx)
+		return err
+	}))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to capture page segment at y=%d height=%d: %w", segment.OffsetY, segment.Height, err)
+	}
+
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+func (r *Renderer) renderPageImages(ctx context.Context, kind string, setup chromedp.Tasks) ([]string, error) {
+	browserCtx, err := r.getBrowserContext(kind)
+	if err != nil {
+		return nil, err
 	}
 
 	tabCtx, tabCancel := chromedp.NewContext(browserCtx)
@@ -262,10 +344,66 @@ func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string
 	taskCtx, taskCancel := r.newTaskContext(tabCtx, ctx)
 	defer taskCancel()
 
-	// Inject CSS to increase font size and minimize margins for thermal printer
+	initialTasks := append(chromedp.Tasks{}, setup...)
+	initialTasks = append(initialTasks, chromedp.Sleep(r.renderDelay))
+	if err := chromedp.Run(taskCtx, initialTasks...); err != nil {
+		return nil, err
+	}
+
+	bounds, err := measureCurrentPageBounds(taskCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	segments, err := splitRenderBounds(bounds)
+	if err != nil {
+		return nil, err
+	}
+
+	images := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		imgBase64, err := captureSegment(taskCtx, bounds.Width, segment)
+		if err != nil {
+			return nil, err
+		}
+		images = append(images, imgBase64)
+	}
+
+	return images, nil
+}
+
+func singleImageResult(images []string) (string, error) {
+	switch len(images) {
+	case 0:
+		return "", fmt.Errorf("renderer produced no images")
+	case 1:
+		return images[0], nil
+	default:
+		return "", fmt.Errorf("render requires pagination (%d pages)", len(images))
+	}
+}
+
+// RenderURLToImage renders a webpage to a PNG image (base64 encoded).
+// Uses 2x scale for sharper text on thermal printers.
+func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string, error) {
+	images, err := r.RenderURLToImages(ctx, pageURL)
+	if err != nil {
+		return "", err
+	}
+
+	imgBase64, err := singleImageResult(images)
+	if err != nil {
+		return "", fmt.Errorf("failed to render page: %w", err)
+	}
+
+	return imgBase64, nil
+}
+
+// RenderURLToImages renders a webpage to one or more PNG images (base64 encoded).
+func (r *Renderer) RenderURLToImages(ctx context.Context, pageURL string) ([]string, error) {
 	fontCSS := `
-		* { 
-			font-size: 24px !important; 
+		* {
+			font-size: 24px !important;
 			line-height: 1.6 !important;
 		}
 		html, body {
@@ -281,8 +419,7 @@ func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string
 		small { font-size: 20px !important; }
 	`
 
-	var buf []byte
-	err = chromedp.Run(taskCtx,
+	images, err := r.renderPageImages(ctx, urlRendererKind, chromedp.Tasks{
 		chromedp.Navigate(pageURL),
 		chromedp.WaitReady("body"),
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -293,31 +430,31 @@ func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string
 			`, fontCSS)
 			return chromedp.Evaluate(script, nil).Do(ctx)
 		}),
-		chromedp.Sleep(r.renderDelay),
-		chromedp.ActionFunc(r.validateCurrentPageBounds),
-		chromedp.FullScreenshot(&buf, 100),
-	)
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to render page: %w", err)
+		return nil, fmt.Errorf("failed to render page: %w", err)
 	}
 
-	return base64.StdEncoding.EncodeToString(buf), nil
+	return images, nil
 }
 
-// RenderHTMLToImage renders HTML content to a PNG image (base64 encoded)
+// RenderHTMLToImage renders HTML content to a PNG image (base64 encoded).
 func (r *Renderer) RenderHTMLToImage(ctx context.Context, html string) (string, error) {
-	browserCtx, err := r.getHTMLBrowserContext()
+	images, err := r.RenderHTMLToImages(ctx, html)
 	if err != nil {
 		return "", err
 	}
 
-	tabCtx, tabCancel := chromedp.NewContext(browserCtx)
-	defer tabCancel()
+	imgBase64, err := singleImageResult(images)
+	if err != nil {
+		return "", fmt.Errorf("failed to render HTML: %w", err)
+	}
 
-	taskCtx, taskCancel := r.newTaskContext(tabCtx, ctx)
-	defer taskCancel()
+	return imgBase64, nil
+}
 
-	// Wrap HTML with proper styling for thermal printer width
+// RenderHTMLToImages renders HTML content to one or more PNG images (base64 encoded).
+func (r *Renderer) RenderHTMLToImages(ctx context.Context, html string) ([]string, error) {
 	wrappedHTML := fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
@@ -341,19 +478,22 @@ img { max-width: 100%%; height: auto; }
 <body>%s</body>
 </html>`, PrinterWidth-16, html)
 
-	var buf []byte
-	err = chromedp.Run(taskCtx,
+	images, err := r.renderPageImages(ctx, htmlRendererKind, chromedp.Tasks{
 		chromedp.Navigate("about:blank"),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return chromedp.Evaluate(fmt.Sprintf(`document.documentElement.innerHTML = %q`, wrappedHTML), nil).Do(ctx)
 		}),
-		chromedp.Sleep(r.renderDelay),
-		chromedp.ActionFunc(r.validateCurrentPageBounds),
-		chromedp.FullScreenshot(&buf, 100),
-	)
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to render HTML: %w", err)
+		return nil, fmt.Errorf("failed to render HTML: %w", err)
 	}
 
-	return base64.StdEncoding.EncodeToString(buf), nil
+	return images, nil
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

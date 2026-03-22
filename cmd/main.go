@@ -19,18 +19,56 @@ import (
 var (
 	configPath     = flag.String("config", "", "path to config file")
 	bindUser       = flag.String("bind", "", "bind user identifier (run once to get user_id)")
-	printText      = flag.String("print-text", "", "print plain text immediately and exit (GBK text mode, experimental)")
-	printURL       = flag.String("print-url", "", "print from URL immediately and exit")
-	printHTML      = flag.String("print-html", "", "print HTML content immediately and exit")
-	printURLAsImg  = flag.String("print-url-img", "", "render URL as image and print (for better text rendering)")
-	printHTMLAsImg = flag.String("print-html-img", "", "render HTML as image and print")
+	printURL       = flag.String("print-url", "", "print from URL via Memobird server-side rendering (modern pages may submit successfully but print blank; prefer -print-url-img)")
+	printHTML      = flag.String("print-html", "", "print HTML via Memobird server-side rendering (may print blank on current devices/firmware; prefer -print-html-img)")
+	printURLAsImg  = flag.String("print-url-img", "", "render URL locally as image and print (recommended)")
+	printHTMLAsImg = flag.String("print-html-img", "", "render HTML locally as image and print (recommended)")
 	showVersion    = flag.Bool("version", false, "show version")
 )
 
 var version = "dev"
 
+type boundUser interface {
+	GetUserID() int
+}
+
+type imagePrinter interface {
+	PrintImage(ctx context.Context, imgBase64 string) (*memobird.PrintResponse, error)
+	GetUserID() int
+}
+
+type imageRenderer interface {
+	RenderURLToImage(ctx context.Context, pageURL string) (string, error)
+	RenderHTMLToImage(ctx context.Context, html string) (string, error)
+}
+
+type pagedURLRenderer interface {
+	RenderURLToImages(ctx context.Context, pageURL string) ([]string, error)
+}
+
+type pagedHTMLRenderer interface {
+	RenderHTMLToImages(ctx context.Context, html string) ([]string, error)
+}
+
+type actionSpec struct {
+	name       string
+	value      string
+	failureMsg string
+	run        func() error
+}
+
 // main wires CLI flags, config loading, and command execution.
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintln(flag.CommandLine.Output())
+		fmt.Fprintln(flag.CommandLine.Output(), "Notes:")
+		fmt.Fprintln(flag.CommandLine.Output(), "  - -print-url and -print-html depend on Memobird server-side rendering.")
+		fmt.Fprintln(flag.CommandLine.Output(), "  - Modern webpages may submit successfully but still print blank paper in those modes.")
+		fmt.Fprintln(flag.CommandLine.Output(), "  - Prefer -print-url-img or -print-html-img for modern pages and reliable output.")
+	}
+
 	flag.Parse()
 
 	if *showVersion {
@@ -65,62 +103,84 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *bindUser != "" {
-		if err := runBind(ctx, client, store, *bindUser, cfg.Memobird.DeviceID, logger); err != nil {
-			logger.Error("bind failed", "error", err)
-			os.Exit(1)
-		}
+	action, err := selectAction([]actionSpec{
+		{
+			name:       "bind",
+			value:      *bindUser,
+			failureMsg: "bind failed",
+			run: func() error {
+				return runBind(ctx, client, store, *bindUser, cfg.Memobird.DeviceID, logger)
+			},
+		},
+		{
+			name:       "print-url",
+			value:      *printURL,
+			failureMsg: "print from URL failed",
+			run: func() error {
+				return runPrintURL(ctx, client, *printURL, logger)
+			},
+		},
+		{
+			name:       "print-html",
+			value:      *printHTML,
+			failureMsg: "print from HTML failed",
+			run: func() error {
+				return runPrintHTML(ctx, client, *printHTML, logger)
+			},
+		},
+		{
+			name:       "print-url-img",
+			value:      *printURLAsImg,
+			failureMsg: "print URL as image failed",
+			run: func() error {
+				render := renderer.New(30 * time.Second)
+				defer render.Close()
+				return runPrintURLAsImage(ctx, client, render, *printURLAsImg, logger)
+			},
+		},
+		{
+			name:       "print-html-img",
+			value:      *printHTMLAsImg,
+			failureMsg: "print HTML as image failed",
+			run: func() error {
+				render := renderer.New(30 * time.Second)
+				defer render.Close()
+				return runPrintHTMLAsImage(ctx, client, render, *printHTMLAsImg, logger)
+			},
+		},
+	})
+	if err != nil {
+		logger.Error("invalid command flags", "error", err)
+		os.Exit(1)
+	}
+	if action == nil {
+		flag.Usage()
 		return
 	}
+	if err := action.run(); err != nil {
+		logger.Error(action.failureMsg, "error", err)
+		os.Exit(1)
+	}
+}
 
-	if *printText != "" {
-		if err := runPrintText(ctx, client, *printText, logger); err != nil {
-			logger.Error("print text failed", "error", err)
-			os.Exit(1)
+func selectAction(actions []actionSpec) (*actionSpec, error) {
+	var selected *actionSpec
+	for i := range actions {
+		action := &actions[i]
+		if action.value == "" {
+			continue
 		}
-		return
+		if selected != nil {
+			return nil, fmt.Errorf("flags -%s and -%s are mutually exclusive", selected.name, action.name)
+		}
+		selected = action
 	}
 
-	if *printURL != "" {
-		if err := runPrintURL(ctx, client, *printURL, logger); err != nil {
-			logger.Error("print from URL failed", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	if *printHTML != "" {
-		if err := runPrintHTML(ctx, client, *printHTML, logger); err != nil {
-			logger.Error("print from HTML failed", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	render := renderer.New(30 * time.Second)
-	defer render.Close()
-
-	if *printURLAsImg != "" {
-		if err := runPrintURLAsImage(ctx, client, render, *printURLAsImg, logger); err != nil {
-			logger.Error("print URL as image failed", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	if *printHTMLAsImg != "" {
-		if err := runPrintHTMLAsImage(ctx, client, render, *printHTMLAsImg, logger); err != nil {
-			logger.Error("print HTML as image failed", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	flag.Usage()
+	return selected, nil
 }
 
 // requireBoundUser ensures a valid user binding exists before print operations run.
-func requireBoundUser(client *memobird.Client) error {
+func requireBoundUser(client boundUser) error {
 	if client.GetUserID() == 0 {
 		return fmt.Errorf("user_id not configured, run -bind first")
 	}
@@ -172,34 +232,13 @@ func runBind(ctx context.Context, client *memobird.Client, store *storage.Storag
 	return nil
 }
 
-// runPrintText prints plain text using the /home/printpaper endpoint.
-func runPrintText(ctx context.Context, client *memobird.Client, text string, logger *slog.Logger) error {
-	if err := requireBoundUser(client); err != nil {
-		return err
-	}
-
-	logger.Warn("print-text is experimental: some Memobird models/firmware may print blank paper", "suggestion", "use -print-html-img for stable Chinese output")
-
-	logger.Info("printing text content", "length", len(text))
-
-	resp, err := client.PrintText(ctx, text)
-	if err != nil {
-		return err
-	}
-
-	logger.Info("print submitted", "content_id", resp.PrintContentID, "printed", resp.IsPrinted())
-	fmt.Printf("Print submitted! Content ID: %d\n", resp.PrintContentID)
-	fmt.Printf("Note: -print-text may be unsupported on some devices and can result in blank output.\n")
-
-	return nil
-}
-
 // runPrintURL prints content from a web page URL.
 func runPrintURL(ctx context.Context, client *memobird.Client, pageURL string, logger *slog.Logger) error {
 	if err := requireBoundUser(client); err != nil {
 		return err
 	}
 
+	logger.Warn("using Memobird server-side URL rendering; accepted jobs may still print blank pages on modern sites", "recommended_flag", "-print-url-img")
 	logger.Info("printing from URL", "url", pageURL)
 
 	if err := renderer.ValidateURL(pageURL); err != nil {
@@ -223,6 +262,7 @@ func runPrintHTML(ctx context.Context, client *memobird.Client, html string, log
 		return err
 	}
 
+	logger.Warn("using Memobird server-side HTML rendering; keep HTML simple and prefer image mode for reliable output", "recommended_flag", "-print-html-img")
 	logger.Info("printing HTML content", "length", len(html))
 
 	resp, err := client.PrintFromHTML(ctx, html)
@@ -236,8 +276,52 @@ func runPrintHTML(ctx context.Context, client *memobird.Client, html string, log
 	return nil
 }
 
+func renderImagePages(renderFn func() ([]string, error), renderErr string) ([]string, error) {
+	imgBase64Pages, err := renderFn()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", renderErr, err)
+	}
+	if len(imgBase64Pages) == 0 {
+		return nil, fmt.Errorf("%s: renderer returned no pages", renderErr)
+	}
+
+	return imgBase64Pages, nil
+}
+
+func printRenderedImages(ctx context.Context, client imagePrinter, logger *slog.Logger, renderFn func() ([]string, error), renderErr string) error {
+	imgBase64Pages, err := renderImagePages(renderFn, renderErr)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("rendered image pages", "page_count", len(imgBase64Pages))
+
+	for i, imgBase64 := range imgBase64Pages {
+		page := i + 1
+		total := len(imgBase64Pages)
+
+		logger.Info("rendered image page", "page", page, "page_count", total, "base64_length", len(imgBase64))
+
+		processedImg, err := renderer.ProcessImageForPrint(imgBase64)
+		if err != nil {
+			return fmt.Errorf("failed to process page %d/%d: %w", page, total, err)
+		}
+
+		logger.Info("processed image page", "page", page, "page_count", total, "base64_length", len(processedImg))
+
+		resp, err := client.PrintImage(ctx, processedImg)
+		if err != nil {
+			return fmt.Errorf("failed to submit page %d/%d: %w", page, total, err)
+		}
+
+		logger.Info("print submitted", "page", page, "page_count", total, "content_id", resp.PrintContentID, "printed", resp.IsPrinted())
+		fmt.Printf("Print submitted! Page %d/%d Content ID: %d\n", page, total, resp.PrintContentID)
+	}
+	return nil
+}
+
 // runPrintURLAsImage renders a web page to an image and prints it.
-func runPrintURLAsImage(ctx context.Context, client *memobird.Client, render *renderer.Renderer, pageURL string, logger *slog.Logger) error {
+func runPrintURLAsImage(ctx context.Context, client imagePrinter, render imageRenderer, pageURL string, logger *slog.Logger) error {
 	if err := requireBoundUser(client); err != nil {
 		return err
 	}
@@ -248,62 +332,38 @@ func runPrintURLAsImage(ctx context.Context, client *memobird.Client, render *re
 		return fmt.Errorf("URL validation failed: %w", err)
 	}
 
-	imgBase64, err := render.RenderURLToImage(ctx, pageURL)
-	if err != nil {
-		return fmt.Errorf("failed to render URL: %w", err)
-	}
+	return printRenderedImages(ctx, client, logger, func() ([]string, error) {
+		if paged, ok := render.(pagedURLRenderer); ok {
+			return paged.RenderURLToImages(ctx, pageURL)
+		}
 
-	logger.Info("rendered image", "base64_length", len(imgBase64))
+		imgBase64, err := render.RenderURLToImage(ctx, pageURL)
+		if err != nil {
+			return nil, err
+		}
 
-	// Process image locally: resize to 384px and convert to high-contrast monochrome
-	processedImg, err := renderer.ProcessImageForPrint(imgBase64)
-	if err != nil {
-		return fmt.Errorf("failed to process image: %w", err)
-	}
-
-	logger.Info("processed image", "base64_length", len(processedImg))
-
-	resp, err := client.PrintImageProcessed(ctx, processedImg)
-	if err != nil {
-		return err
-	}
-
-	logger.Info("print submitted", "content_id", resp.PrintContentID, "printed", resp.IsPrinted())
-	fmt.Printf("Print submitted! Content ID: %d\n", resp.PrintContentID)
-
-	return nil
+		return []string{imgBase64}, nil
+	}, "failed to render URL")
 }
 
 // runPrintHTMLAsImage renders HTML content to an image and prints it.
-func runPrintHTMLAsImage(ctx context.Context, client *memobird.Client, render *renderer.Renderer, html string, logger *slog.Logger) error {
+func runPrintHTMLAsImage(ctx context.Context, client imagePrinter, render imageRenderer, html string, logger *slog.Logger) error {
 	if err := requireBoundUser(client); err != nil {
 		return err
 	}
 
 	logger.Info("rendering HTML to image", "length", len(html))
 
-	imgBase64, err := render.RenderHTMLToImage(ctx, html)
-	if err != nil {
-		return fmt.Errorf("failed to render HTML: %w", err)
-	}
+	return printRenderedImages(ctx, client, logger, func() ([]string, error) {
+		if paged, ok := render.(pagedHTMLRenderer); ok {
+			return paged.RenderHTMLToImages(ctx, html)
+		}
 
-	logger.Info("rendered image", "base64_length", len(imgBase64))
+		imgBase64, err := render.RenderHTMLToImage(ctx, html)
+		if err != nil {
+			return nil, err
+		}
 
-	// Process image locally: resize to 384px and convert to high-contrast monochrome
-	processedImg, err := renderer.ProcessImageForPrint(imgBase64)
-	if err != nil {
-		return fmt.Errorf("failed to process image: %w", err)
-	}
-
-	logger.Info("processed image", "base64_length", len(processedImg))
-
-	resp, err := client.PrintImageProcessed(ctx, processedImg)
-	if err != nil {
-		return err
-	}
-
-	logger.Info("print submitted", "content_id", resp.PrintContentID, "printed", resp.IsPrinted())
-	fmt.Printf("Print submitted! Content ID: %d\n", resp.PrintContentID)
-
-	return nil
+		return []string{imgBase64}, nil
+	}, "failed to render HTML")
 }
