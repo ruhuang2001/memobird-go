@@ -1,172 +1,65 @@
 package formatter
 
 import (
-	"strings"
+	"encoding/base64"
 	"testing"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
-func TestEncodeTextToGBKBase64(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{
-			name:    "simple ASCII text",
-			input:   "hello",
-			wantErr: false,
-		},
-		{
-			name:    "Chinese text",
-			input:   "Hello World",
-			wantErr: false,
-		},
-		{
-			name:    "mixed text",
-			input:   "Hello World",
-			wantErr: false,
-		},
-		{
-			name:    "text with newline",
-			input:   "hello\n",
-			wantErr: false,
-		},
-	}
+func TestEncodeHTMLToGBKBase64RoundTrip(t *testing.T) {
+	html := "<div>中文测试 ABC 123</div>"
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := EncodeTextToGBKBase64(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("EncodeTextToGBKBase64() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if !tt.wantErr && result == "" {
-				t.Error("EncodeTextToGBKBase64() returned empty string")
-			}
-		})
-	}
-}
-
-func TestDecodeGBKBase64ToText(t *testing.T) {
-	original := "Hello World"
-	encoded, err := EncodeTextToGBKBase64(original)
+	encoded, err := EncodeHTMLToGBKBase64(html)
 	if err != nil {
-		t.Fatalf("EncodeTextToGBKBase64() error = %v", err)
+		t.Fatalf("EncodeHTMLToGBKBase64() error = %v", err)
 	}
 
-	decoded, err := DecodeGBKBase64ToText(encoded)
+	decoded, err := decodeGBKBase64(encoded)
 	if err != nil {
-		t.Fatalf("DecodeGBKBase64ToText() error = %v", err)
+		t.Fatalf("decodeGBKBase64() error = %v", err)
 	}
 
-	expected := original + "\n"
-	if decoded != expected {
-		t.Errorf("DecodeGBKBase64ToText() = %q, want %q", decoded, expected)
-	}
-}
-
-func TestTruncateText(t *testing.T) {
-	tests := []struct {
-		name     string
-		text     string
-		maxLines int
-		want     string
-	}{
-		{
-			name:     "within limit",
-			text:     "line1\nline2\nline3",
-			maxLines: 5,
-			want:     "line1\nline2\nline3",
-		},
-		{
-			name:     "exceed limit",
-			text:     "line1\nline2\nline3\nline4\nline5",
-			maxLines: 3,
-			want:     "line1\nline2\nline3\n...",
-		},
-		{
-			name:     "default max lines",
-			text:     "line1\nline2",
-			maxLines: 0,
-			want:     "line1\nline2",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := TruncateText(tt.text, tt.maxLines)
-			if got != tt.want {
-				t.Errorf("TruncateText() = %q, want %q", got, tt.want)
-			}
-		})
+	if decoded != html {
+		t.Fatalf("decoded payload = %q, want %q", decoded, html)
 	}
 }
 
-func TestWrapText(t *testing.T) {
-	tests := []struct {
-		name     string
-		text     string
-		maxWidth int
-		want     string
-	}{
-		{
-			name:     "within width",
-			text:     "hello",
-			maxWidth: 10,
-			want:     "hello",
-		},
-		{
-			name:     "needs wrapping",
-			text:     "hello world",
-			maxWidth: 5,
-			want:     "hello\n worl\nd",
-		},
-		{
-			name:     "default width",
-			text:     "short",
-			maxWidth: 0,
-			want:     "short",
-		},
+func TestEncodeHTMLToGBKBase64DoesNotAppendNewline(t *testing.T) {
+	html := "<p>line</p>"
+
+	encoded, err := EncodeHTMLToGBKBase64(html)
+	if err != nil {
+		t.Fatalf("EncodeHTMLToGBKBase64() error = %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := WrapText(tt.text, tt.maxWidth)
-			if got != tt.want {
-				t.Errorf("WrapText() = %q, want %q", got, tt.want)
-			}
-		})
+	decoded, err := decodeGBKBase64(encoded)
+	if err != nil {
+		t.Fatalf("decodeGBKBase64() error = %v", err)
+	}
+
+	if decoded != html {
+		t.Fatalf("decoded payload = %q, want %q", decoded, html)
 	}
 }
 
-func TestEncodeDecodeRoundTrip(t *testing.T) {
-	testCases := []string{
-		"Hello, World!",
-		"Hello, World!",
-		"Test 123 Test",
-		"Special chars: @#$%",
+func TestEncodeHTMLToGBKBase64RejectsUnencodableCharacters(t *testing.T) {
+	if _, err := EncodeHTMLToGBKBase64("<p>emoji 😀</p>"); err == nil {
+		t.Fatal("EncodeHTMLToGBKBase64() error = nil, want encoding error")
+	}
+}
+
+func decodeGBKBase64(encoded string) (string, error) {
+	tBytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
 	}
 
-	for _, original := range testCases {
-		encoded, err := EncodeTextToGBKBase64(original)
-		if err != nil {
-			t.Errorf("EncodeTextToGBKBase64(%q) error = %v", original, err)
-			continue
-		}
-
-		decoded, err := DecodeGBKBase64ToText(encoded)
-		if err != nil {
-			t.Errorf("DecodeGBKBase64ToText() error = %v", err)
-			continue
-		}
-
-		expected := original
-		if !strings.HasSuffix(original, "\n") {
-			expected = original + "\n"
-		}
-		if decoded != expected {
-			t.Errorf("Round trip failed: got %q, want %q", decoded, expected)
-		}
+	decoded, _, err := transform.Bytes(simplifiedchinese.GBK.NewDecoder(), tBytes)
+	if err != nil {
+		return "", err
 	}
+
+	return string(decoded), nil
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ruhuang2001/memobird-playground/internal/config"
@@ -80,8 +81,8 @@ func (p *PrintResponse) IsPrinted() bool {
 // PrintStatusResponse contains the status of a print job.
 type PrintStatusResponse struct {
 	BaseResponse
-	PrintFlag      int    `json:"printflag"`
-	PrintContentID string `json:"printcontentID"`
+	PrintFlag      int `json:"printflag"`
+	PrintContentID int `json:"printcontentid"`
 }
 
 // IsPrinted reports whether the queried print job has finished printing.
@@ -103,6 +104,7 @@ func (c *Client) timestamp() string {
 // doRequest sends an HTTP POST request to the specified endpoint with the given parameters.
 // It automatically adds the access key and timestamp to the request.
 func (c *Client) doRequest(ctx context.Context, endpoint string, params url.Values) ([]byte, error) {
+	params = cloneValues(params)
 	params.Set("ak", c.accessKey)
 	params.Set("timestamp", c.timestamp())
 
@@ -143,7 +145,7 @@ func postFormJSON[T any](ctx context.Context, c *Client, endpoint string, params
 
 	var resp T
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse response for %s: %w (body=%q)", action, err, summarizeBody(body))
 	}
 
 	apiResp, ok := any(&resp).(apiResponse)
@@ -156,6 +158,34 @@ func postFormJSON[T any](ctx context.Context, c *Client, endpoint string, params
 	}
 
 	return &resp, nil
+}
+
+func cloneValues(values url.Values) url.Values {
+	cloned := make(url.Values, len(values))
+	for key, items := range values {
+		cloned[key] = append([]string(nil), items...)
+	}
+
+	return cloned
+}
+
+func summarizeBody(body []byte) string {
+	const maxLen = 160
+
+	snippet := strings.TrimSpace(string(body))
+	if len(snippet) <= maxLen {
+		return snippet
+	}
+
+	return snippet[:maxLen] + "..."
+}
+
+func (c *Client) requireUserID() error {
+	if c.userID == 0 {
+		return fmt.Errorf("user_id not configured")
+	}
+
+	return nil
 }
 
 // BindUser binds a user identifier to the current device, returning the assigned user ID.
@@ -183,27 +213,12 @@ func (c *Client) ConvertToMonochrome(ctx context.Context, imgBase64 string) (*Im
 	return postFormJSON[ImageConvertResponse](ctx, c, "/home/getSignalBase64Pic", params, "image conversion")
 }
 
-// PrintText prints plain text content to the thermal printer.
-// The text is encoded to GBK and base64 before sending.
-func (c *Client) PrintText(ctx context.Context, text string) (*PrintResponse, error) {
-	encoded, err := formatter.EncodeTextToGBKBase64(text)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode text: %w", err)
-	}
-
-	// Use T: prefix to indicate text content
-	printContent := "T:" + encoded
-
-	params := url.Values{}
-	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.userID))
-	params.Set("printcontent", printContent)
-
-	return postFormJSON[PrintResponse](ctx, c, "/home/printpaper", params, "print text")
-}
-
 // PrintFromURL prints content from a web page by providing its URL to the print service.
 func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintResponse, error) {
+	if err := c.requireUserID(); err != nil {
+		return nil, err
+	}
+
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
 	params.Set("userID", fmt.Sprintf("%d", c.userID))
@@ -214,6 +229,10 @@ func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintRespon
 
 // PrintFromHTML prints HTML content directly to the thermal printer.
 func (c *Client) PrintFromHTML(ctx context.Context, html string) (*PrintResponse, error) {
+	if err := c.requireUserID(); err != nil {
+		return nil, err
+	}
+
 	encoded, err := formatter.EncodeHTMLToGBKBase64(html)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode HTML: %w", err)
@@ -228,30 +247,18 @@ func (c *Client) PrintFromHTML(ctx context.Context, html string) (*PrintResponse
 	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromHtml", params, "print from HTML")
 }
 
-// PrintImage prints a base64-encoded image (will be converted to monochrome by API)
+// PrintImage prints a base64-encoded image after converting it to printer bitmap format.
 func (c *Client) PrintImage(ctx context.Context, imgBase64 string) (*PrintResponse, error) {
-	// First convert the image to monochrome using API
-	convertResp, err := c.ConvertToMonochrome(ctx, imgBase64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert image: %w", err)
-	}
-
-	// Use P: prefix for image content
-	printContent := "P:" + convertResp.Result
-
-	params := url.Values{}
-	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.userID))
-	params.Set("printcontent", printContent)
-
-	return postFormJSON[PrintResponse](ctx, c, "/home/printpaper", params, "print image")
+	return c.printImage(ctx, imgBase64)
 }
 
-// PrintImageProcessed prints a pre-processed base64 image (already 384px wide monochrome)
-// Uses API to convert to printer format, but image is already optimized locally
-func (c *Client) PrintImageProcessed(ctx context.Context, processedImgBase64 string) (*PrintResponse, error) {
+func (c *Client) printImage(ctx context.Context, imgBase64 string) (*PrintResponse, error) {
+	if err := c.requireUserID(); err != nil {
+		return nil, err
+	}
+
 	// Use API to convert to printer bitmap format
-	convertResp, err := c.ConvertToMonochrome(ctx, processedImgBase64)
+	convertResp, err := c.ConvertToMonochrome(ctx, imgBase64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert image: %w", err)
 	}

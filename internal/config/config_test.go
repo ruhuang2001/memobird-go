@@ -54,7 +54,7 @@ func TestLoadAllowsEnvOnlyConfiguration(t *testing.T) {
 	t.Setenv("MEMOBIRD_TIMEOUT_SEC", "12")
 	t.Setenv("MEMOBIRD_STORAGE_DB_PATH", "/tmp/memobird.db")
 
-	cfg, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -106,8 +106,19 @@ func TestLoadValidationFailure(t *testing.T) {
 	t.Setenv("MEMOBIRD_ACCESS_KEY", "")
 	t.Setenv("MEMOBIRD_DEVICE_ID", "")
 
-	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+	_, err := Load("")
 	if err == nil {
 		t.Fatal("Load() error = nil, want validation error")
+	}
+}
+
+// TestLoadExplicitMissingConfigFails verifies explicit config paths must exist.
+func TestLoadExplicitMissingConfigFails(t *testing.T) {
+	t.Setenv("MEMOBIRD_ACCESS_KEY", "env-ak")
+	t.Setenv("MEMOBIRD_DEVICE_ID", "env-device")
+
+	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err == nil {
+		t.Fatal("Load() error = nil, want missing config error")
 	}
 }

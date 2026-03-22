@@ -10,6 +10,12 @@ import (
 	"github.com/spf13/viper"
 )
 
+const (
+	defaultBaseURL    = "http://open.memobird.cn"
+	defaultTimeoutSec = 30
+	defaultDBPath     = "./memobird.db"
+)
+
 // Config is the top-level application configuration.
 type Config struct {
 	Memobird MemobirdConfig `mapstructure:"memobird"`
@@ -33,7 +39,7 @@ type StorageConfig struct {
 // Timeout returns the HTTP request timeout duration, defaulting to 30 seconds.
 func (m *MemobirdConfig) Timeout() time.Duration {
 	if m.TimeoutSec <= 0 {
-		return 30 * time.Second
+		return defaultTimeoutSec * time.Second
 	}
 	return time.Duration(m.TimeoutSec) * time.Second
 }
@@ -41,7 +47,7 @@ func (m *MemobirdConfig) Timeout() time.Duration {
 // GetBaseURL returns the Memobird API base URL, defaulting to the official API endpoint.
 func (m *MemobirdConfig) GetBaseURL() string {
 	if m.BaseURL == "" {
-		return "http://open.memobird.cn"
+		return defaultBaseURL
 	}
 	return m.BaseURL
 }
@@ -80,13 +86,17 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	v.SetDefault("memobird.base_url", "http://open.memobird.cn")
-	v.SetDefault("memobird.timeout_sec", 30)
-	v.SetDefault("storage.db_path", "./memobird.db")
+	v.SetDefault("memobird.base_url", defaultBaseURL)
+	v.SetDefault("memobird.timeout_sec", defaultTimeoutSec)
+	v.SetDefault("storage.db_path", defaultDBPath)
 
 	if err := v.ReadInConfig(); err != nil {
 		var configNotFound viper.ConfigFileNotFoundError
-		if !errors.As(err, &configNotFound) && !errors.Is(err, os.ErrNotExist) {
+		missingConfig := errors.As(err, &configNotFound) || errors.Is(err, os.ErrNotExist)
+		if configPath != "" && missingConfig {
+			return nil, fmt.Errorf("config file %q not found: %w", configPath, err)
+		}
+		if !missingConfig {
 			return nil, fmt.Errorf("failed to read config: %w", err)
 		}
 	}
