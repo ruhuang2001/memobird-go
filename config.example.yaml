@@ -1,23 +1,11 @@
 # Memobird Playground Configuration
 
 memobird:
-  # Your Access Key from open.memobird.cn (required)
   access_key: "your-access-key-here"
-  
-  # Device ID - double-click your Memobird to print it (required)
   device_id: "your-device-id-here"
-  
-  # User ID - obtained after running: ./memobird -bind your-unique-id
-  # Keep as 0 to auto-load the last saved binding from storage.db_path
-  # (only used when the stored device_id matches this device_id)
   user_id: 0
-  
-  # API base URL (optional, defaults to official API)
+  timeout: 30s
   # base_url: "http://open.memobird.cn"
-  
-  # Request timeout in seconds (optional, defaults to 30)
-  # timeout_sec: 30
 
 storage:
-  # Path to SQLite database for storing user binding
   db_path: "./memobird.db"
