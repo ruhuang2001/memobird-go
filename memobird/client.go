@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ruhuang2001/memobird-playground/formatter"
@@ -61,23 +62,25 @@ func (c Config) Validate() error {
 }
 
 // Client is a Memobird thermal printer API client.
+// It is safe for concurrent use after construction.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
 	accessKey  string
 	deviceID   string
-	userID     int
+	userID     atomic.Int64
 }
 
 // NewClient creates a new Memobird API client with the provided configuration.
 func NewClient(cfg Config) *Client {
-	return &Client{
+	client := &Client{
 		httpClient: cfg.normalizedHTTPClient(),
 		baseURL:    cfg.normalizedBaseURL(),
 		accessKey:  cfg.AccessKey,
 		deviceID:   cfg.DeviceID,
-		userID:     cfg.UserID,
 	}
+	client.SetUserID(cfg.UserID)
+	return client
 }
 
 // BaseResponse contains common fields returned by all API endpoints.
@@ -223,7 +226,7 @@ func summarizeBody(body []byte) string {
 }
 
 func (c *Client) requireUserID() error {
-	if c.userID == 0 {
+	if c.GetUserID() == 0 {
 		return fmt.Errorf("user_id not configured")
 	}
 
@@ -263,7 +266,7 @@ func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintRespon
 
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.userID))
+	params.Set("userID", fmt.Sprintf("%d", c.GetUserID()))
 	params.Set("printUrl", pageURL)
 
 	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromUrl", params, "print from URL")
@@ -282,7 +285,7 @@ func (c *Client) PrintFromHTML(ctx context.Context, html string) (*PrintResponse
 
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.userID))
+	params.Set("userID", fmt.Sprintf("%d", c.GetUserID()))
 	params.Set("printHtml", encoded)
 
 	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromHtml", params, "print from HTML")
@@ -307,7 +310,7 @@ func (c *Client) printImage(ctx context.Context, imgBase64 string) (*PrintRespon
 
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.userID))
+	params.Set("userID", fmt.Sprintf("%d", c.GetUserID()))
 	params.Set("printcontent", printContent)
 
 	return postFormJSON[PrintResponse](ctx, c, "/home/printpaper", params, "print image")
@@ -315,10 +318,10 @@ func (c *Client) printImage(ctx context.Context, imgBase64 string) (*PrintRespon
 
 // SetUserID sets the user ID for subsequent print requests.
 func (c *Client) SetUserID(userID int) {
-	c.userID = userID
+	c.userID.Store(int64(userID))
 }
 
 // GetUserID returns the currently configured user ID.
 func (c *Client) GetUserID() int {
-	return c.userID
+	return int(c.userID.Load())
 }

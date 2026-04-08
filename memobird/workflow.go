@@ -7,6 +7,13 @@ import (
 	"github.com/ruhuang2001/memobird-playground/renderer"
 )
 
+// BindingStore is the minimal persistence contract needed to remember and
+// restore a bound Memobird user across process restarts.
+type BindingStore interface {
+	SaveUserBinding(ctx context.Context, userID int, deviceID string) error
+	GetUserBinding(ctx context.Context) (userID int, deviceID string, err error)
+}
+
 type imageRenderer interface {
 	RenderURLToImage(ctx context.Context, pageURL string) (string, error)
 	RenderHTMLToImage(ctx context.Context, html string) (string, error)
@@ -37,6 +44,59 @@ func (c *Client) BindAndRemember(ctx context.Context, userIdentifying string) (*
 	return resp, nil
 }
 
+// PersistUserBinding saves the currently configured user binding to a store.
+func (c *Client) PersistUserBinding(ctx context.Context, store BindingStore) error {
+	if store == nil {
+		return fmt.Errorf("binding store is required")
+	}
+	if err := c.requireBoundUser(); err != nil {
+		return err
+	}
+
+	if err := store.SaveUserBinding(ctx, c.GetUserID(), c.deviceID); err != nil {
+		return fmt.Errorf("failed to persist user binding: %w", err)
+	}
+
+	return nil
+}
+
+// RestoreUserBinding loads a previously saved binding into the client.
+// It returns false when the store has no binding yet.
+func (c *Client) RestoreUserBinding(ctx context.Context, store BindingStore) (bool, error) {
+	if store == nil {
+		return false, fmt.Errorf("binding store is required")
+	}
+
+	userID, deviceID, err := store.GetUserBinding(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to load user binding: %w", err)
+	}
+	if userID == 0 {
+		return false, nil
+	}
+	if deviceID != "" && deviceID != c.deviceID {
+		return false, fmt.Errorf("stored binding belongs to device %q, client configured for %q", deviceID, c.deviceID)
+	}
+
+	c.SetUserID(userID)
+	return true, nil
+}
+
+// BindAndPersist binds a user identifier, stores the resulting user ID, and
+// updates the client for subsequent print requests.
+func (c *Client) BindAndPersist(ctx context.Context, store BindingStore, userIdentifying string) (*BindResponse, error) {
+	resp, err := c.BindAndRemember(ctx, userIdentifying)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.PersistUserBinding(ctx, store); err != nil {
+		return resp, fmt.Errorf("binding succeeded but persistence failed: %w", err)
+	}
+
+	return resp, nil
+}
+
 // PrintURL validates the URL and submits it using Memobird server-side rendering.
 func (c *Client) PrintURL(ctx context.Context, pageURL string) (*PrintResponse, error) {
 	if err := c.requireBoundUser(); err != nil {
@@ -64,7 +124,7 @@ func (c *Client) PrintURLAsImages(ctx context.Context, render imageRenderer, pag
 	if err := renderer.ValidateURL(pageURL); err != nil {
 		return nil, fmt.Errorf("URL validation failed: %w", err)
 	}
-	return c.printRenderedImages(ctx, render, func() ([]string, error) {
+	return c.printRenderedImages(ctx, func() ([]string, error) {
 		if paged, ok := render.(pagedURLRenderer); ok {
 			return paged.RenderURLToImages(ctx, pageURL)
 		}
@@ -82,7 +142,7 @@ func (c *Client) PrintHTMLAsImages(ctx context.Context, render imageRenderer, ht
 	if err := c.requireBoundUser(); err != nil {
 		return nil, err
 	}
-	return c.printRenderedImages(ctx, render, func() ([]string, error) {
+	return c.printRenderedImages(ctx, func() ([]string, error) {
 		if paged, ok := render.(pagedHTMLRenderer); ok {
 			return paged.RenderHTMLToImages(ctx, html)
 		}
@@ -106,7 +166,7 @@ func renderImagePages(renderFn func() ([]string, error), renderErr string) ([]st
 	return imgBase64Pages, nil
 }
 
-func (c *Client) printRenderedImages(ctx context.Context, _ imageRenderer, renderFn func() ([]string, error), renderErr string) ([]*PrintResponse, error) {
+func (c *Client) printRenderedImages(ctx context.Context, renderFn func() ([]string, error), renderErr string) ([]*PrintResponse, error) {
 	imgBase64Pages, err := renderImagePages(renderFn, renderErr)
 	if err != nil {
 		return nil, err
