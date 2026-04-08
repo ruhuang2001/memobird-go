@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ruhuang2001/memobird-playground/memobird"
+	"github.com/ruhuang2001/memobird-playground/storage"
 )
 
 func main() {
@@ -37,9 +38,20 @@ func main() {
 		DeviceID:  "your-device-id",
 		Timeout:   30 * time.Second,
 	})
-
-	if _, err := client.BindAndRemember(ctx, "your-user-identifying-string"); err != nil {
+	store, err := storage.New("./memobird.db")
+	if err != nil {
 		log.Fatal(err)
+	}
+	defer store.Close()
+
+	loaded, err := client.RestoreUserBinding(ctx, store)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !loaded {
+		if _, err := client.BindAndPersist(ctx, store, "your-user-identifying-string"); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if _, err := client.PrintHTML(ctx, "<h1>Hello, Memobird!</h1>"); err != nil {
@@ -56,6 +68,8 @@ func main() {
 
 ```go
 resp, err := client.BindAndRemember(ctx, "your-user-identifying-string")
+resp, err := client.BindAndPersist(ctx, store, "your-user-identifying-string")
+loaded, err := client.RestoreUserBinding(ctx, store)
 ```
 
 ### Remote print
@@ -95,7 +109,19 @@ if err != nil {
 	log.Fatal(err)
 }
 defer store.Close()
+
+loaded, err := client.RestoreUserBinding(ctx, store)
+if err != nil {
+	log.Fatal(err)
+}
+if !loaded {
+	if _, err := client.BindAndPersist(ctx, store, "your-user-identifying-string"); err != nil {
+		log.Fatal(err)
+	}
+}
 ```
+
+`storage.Store` implements `memobird.BindingStore`, and other Go projects can provide their own store implementation as long as it exposes the same two methods.
 
 ## Example config
 
@@ -114,6 +140,7 @@ storage:
 
 - `renderer` is optional and only needed for local URL/HTML rendering.
 - `storage` is optional and only needed if you want to persist bindings.
+- `memobird.Client` is safe for concurrent use after construction.
 - `PrintURL` and `PrintHTML` use Memobird server-side rendering.
 - `PrintURLAsImages` and `PrintHTMLAsImages` use local rendering and are the recommended path for modern pages.
 - Only `http` and `https` URLs with a non-empty host are accepted.

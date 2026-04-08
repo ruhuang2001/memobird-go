@@ -11,6 +11,7 @@ import (
 
 	"github.com/ruhuang2001/memobird-playground/memobird"
 	"github.com/ruhuang2001/memobird-playground/renderer"
+	"github.com/ruhuang2001/memobird-playground/storage"
 )
 
 func main() {
@@ -23,9 +24,20 @@ func main() {
 
 	r := renderer.New(30 * time.Second)
 	defer r.Close()
-
-	if _, err := client.BindAndRemember(ctx, "your-user-identifying-string"); err != nil {
+	store, err := storage.New("./memobird.db")
+	if err != nil {
 		log.Fatal(err)
+	}
+	defer store.Close()
+
+	loaded, err := client.RestoreUserBinding(ctx, store)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !loaded {
+		if _, err := client.BindAndPersist(ctx, store, "your-user-identifying-string"); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if _, err := client.PrintHTMLAsImages(ctx, r, "<h1>Hello, Memobird!</h1>"); err != nil {
