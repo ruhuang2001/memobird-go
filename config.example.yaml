@@ -5,7 +5,7 @@ memobird:
   device_id: "your-device-id-here"
   user_id: 0
   timeout: 30s
-  # base_url: "http://open.memobird.cn"
+  # base_url: "https://open.memobird.cn"
 
 storage:
   db_path: "./memobird.db"

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultBaseURL = "http://open.memobird.cn"
+	defaultBaseURL = "https://open.memobird.cn"
 	defaultTimeout = 30 * time.Second
 )
 
@@ -72,7 +72,11 @@ type Client struct {
 }
 
 // NewClient creates a new Memobird API client with the provided configuration.
-func NewClient(cfg Config) *Client {
+func NewClient(cfg Config) (*Client, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	client := &Client{
 		httpClient: cfg.normalizedHTTPClient(),
 		baseURL:    cfg.normalizedBaseURL(),
@@ -80,7 +84,7 @@ func NewClient(cfg Config) *Client {
 		deviceID:   cfg.DeviceID,
 	}
 	client.SetUserID(cfg.UserID)
-	return client
+	return client, nil
 }
 
 // BaseResponse contains common fields returned by all API endpoints.

@@ -3,6 +3,7 @@ package memobird
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/ruhuang2001/memobird-go/renderer"
 )
@@ -28,10 +29,7 @@ type pagedHTMLRenderer interface {
 }
 
 func (c *Client) requireBoundUser() error {
-	if c.GetUserID() == 0 {
-		return fmt.Errorf("user_id not configured")
-	}
-	return nil
+	return c.requireUserID()
 }
 
 // BindAndRemember binds a user identifier and stores the returned user ID in the client.
@@ -46,18 +44,7 @@ func (c *Client) BindAndRemember(ctx context.Context, userIdentifying string) (*
 
 // PersistUserBinding saves the currently configured user binding to a store.
 func (c *Client) PersistUserBinding(ctx context.Context, store BindingStore) error {
-	if store == nil {
-		return fmt.Errorf("binding store is required")
-	}
-	if err := c.requireBoundUser(); err != nil {
-		return err
-	}
-
-	if err := store.SaveUserBinding(ctx, c.GetUserID(), c.deviceID); err != nil {
-		return fmt.Errorf("failed to persist user binding: %w", err)
-	}
-
-	return nil
+	return c.persistUserBinding(ctx, store, c.GetUserID())
 }
 
 // RestoreUserBinding loads a previously saved binding into the client.
@@ -85,12 +72,16 @@ func (c *Client) RestoreUserBinding(ctx context.Context, store BindingStore) (bo
 // BindAndPersist binds a user identifier, stores the resulting user ID, and
 // updates the client for subsequent print requests.
 func (c *Client) BindAndPersist(ctx context.Context, store BindingStore, userIdentifying string) (*BindResponse, error) {
+	if store == nil {
+		return nil, fmt.Errorf("binding store is required")
+	}
+
 	resp, err := c.BindAndRemember(ctx, userIdentifying)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := c.PersistUserBinding(ctx, store); err != nil {
+	if err := c.persistUserBinding(ctx, store, resp.UserID); err != nil {
 		return resp, fmt.Errorf("binding succeeded but persistence failed: %w", err)
 	}
 
@@ -121,6 +112,9 @@ func (c *Client) PrintURLAsImages(ctx context.Context, render imageRenderer, pag
 	if err := c.requireBoundUser(); err != nil {
 		return nil, err
 	}
+	if isNilImageRenderer(render) {
+		return nil, fmt.Errorf("image renderer is required")
+	}
 	if err := renderer.ValidateURL(pageURL); err != nil {
 		return nil, fmt.Errorf("URL validation failed: %w", err)
 	}
@@ -141,6 +135,9 @@ func (c *Client) PrintURLAsImages(ctx context.Context, render imageRenderer, pag
 func (c *Client) PrintHTMLAsImages(ctx context.Context, render imageRenderer, html string) ([]*PrintResponse, error) {
 	if err := c.requireBoundUser(); err != nil {
 		return nil, err
+	}
+	if isNilImageRenderer(render) {
+		return nil, fmt.Errorf("image renderer is required")
 	}
 	return c.printRenderedImages(ctx, func() ([]string, error) {
 		if paged, ok := render.(pagedHTMLRenderer); ok {
@@ -166,6 +163,35 @@ func renderImagePages(renderFn func() ([]string, error), renderErr string) ([]st
 	return imgBase64Pages, nil
 }
 
+func isNilImageRenderer(render imageRenderer) bool {
+	if render == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(render)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+func (c *Client) persistUserBinding(ctx context.Context, store BindingStore, userID int) error {
+	if store == nil {
+		return fmt.Errorf("binding store is required")
+	}
+	if userID == 0 {
+		return fmt.Errorf("user_id not configured")
+	}
+
+	if err := store.SaveUserBinding(ctx, userID, c.deviceID); err != nil {
+		return fmt.Errorf("failed to persist user binding: %w", err)
+	}
+
+	return nil
+}
+
 func (c *Client) printRenderedImages(ctx context.Context, renderFn func() ([]string, error), renderErr string) ([]*PrintResponse, error) {
 	imgBase64Pages, err := renderImagePages(renderFn, renderErr)
 	if err != nil {
@@ -176,12 +202,12 @@ func (c *Client) printRenderedImages(ctx context.Context, renderFn func() ([]str
 	for i, imgBase64 := range imgBase64Pages {
 		processedImg, err := renderer.ProcessImageForPrint(imgBase64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to process page %d/%d: %w", i+1, len(imgBase64Pages), err)
+			return responses, fmt.Errorf("failed to process page %d/%d: %w", i+1, len(imgBase64Pages), err)
 		}
 
 		resp, err := c.PrintImage(ctx, processedImg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to submit page %d/%d: %w", i+1, len(imgBase64Pages), err)
+			return responses, fmt.Errorf("failed to submit page %d/%d: %w", i+1, len(imgBase64Pages), err)
 		}
 		responses = append(responses, resp)
 	}

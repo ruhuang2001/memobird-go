@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultBaseURL    = "http://open.memobird.cn"
+	defaultBaseURL    = "https://open.memobird.cn"
 	defaultTimeoutSec = 30
 	defaultDBPath     = "./memobird.db"
 )
@@ -33,7 +33,7 @@ func (c *Config) TimeoutSec() int {
 	if c.Memobird.Timeout <= 0 {
 		return defaultTimeoutSec
 	}
-	return int(c.Memobird.Timeout / time.Second)
+	return int((c.Memobird.Timeout + time.Second - 1) / time.Second)
 }
 
 // Load reads configuration from a file and environment variables.

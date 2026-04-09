@@ -118,3 +118,12 @@ func TestLoadExplicitMissingConfigFails(t *testing.T) {
 		t.Fatal("Load() error = nil, want missing config error")
 	}
 }
+
+func TestTimeoutSecRoundsUpSubsecondDurations(t *testing.T) {
+	cfg := &Config{}
+	cfg.Memobird.Timeout = 500 * time.Millisecond
+
+	if got := cfg.TimeoutSec(); got != 1 {
+		t.Fatalf("TimeoutSec() = %d, want 1", got)
+	}
+}

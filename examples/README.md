@@ -4,8 +4,7 @@ This directory contains small examples for using the Go library.
 
 ## Files
 
-- `sample-note.html`: printable HTML used by the examples
-- `quickstart.sh`: shell wrapper that runs a tiny Go program against the library
+- `quickstart.sh`: shell wrapper that writes a temporary Go program with inline HTML and runs it against the library
 
 ## Example usage
 
@@ -26,11 +25,14 @@ import (
 
 func main() {
 	ctx := context.Background()
-	client := memobird.NewClient(memobird.Config{
+	client, err := memobird.NewClient(memobird.Config{
 		AccessKey: "your-access-key",
 		DeviceID:  "your-device-id",
 		Timeout:   30 * time.Second,
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	r := renderer.New(30 * time.Second)
 	defer r.Close()
