@@ -35,11 +35,14 @@ import (
 func main() {
 	ctx := context.Background()
 
-	client := memobird.NewClient(memobird.Config{
+	client, err := memobird.NewClient(memobird.Config{
 		AccessKey: "your-access-key",
 		DeviceID:  "your-device-id",
 		Timeout:   30 * time.Second,
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 	store, err := storage.New("./memobird.db")
 	if err != nil {
 		log.Fatal(err)
@@ -100,7 +103,10 @@ if err != nil {
 	log.Fatal(err)
 }
 
-client := memobird.NewClient(cfg.Memobird)
+client, err := memobird.NewClient(cfg.Memobird)
+if err != nil {
+	log.Fatal(err)
+}
 ```
 
 `config.Load` also supports environment-only startup.

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cat <<'EOF' >/tmp/memobird_quickstart.go
+TMPFILE="$(mktemp "${TMPDIR:-/tmp}/memobird_quickstart.XXXXXX.go")"
+trap 'rm -f "$TMPFILE"' EXIT
+
+cat <<'EOF' >"$TMPFILE"
 package main
 
 import (
@@ -16,11 +19,14 @@ import (
 
 func main() {
 	ctx := context.Background()
-	client := memobird.NewClient(memobird.Config{
+	client, err := memobird.NewClient(memobird.Config{
 		AccessKey: "your-access-key",
 		DeviceID:  "your-device-id",
 		Timeout:   30 * time.Second,
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	r := renderer.New(30 * time.Second)
 	defer r.Close()
@@ -46,5 +52,4 @@ func main() {
 }
 EOF
 
-go run /tmp/memobird_quickstart.go
-rm -f /tmp/memobird_quickstart.go
+go run "$TMPFILE"

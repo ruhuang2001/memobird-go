@@ -22,13 +22,24 @@ func newTestServer(handler http.HandlerFunc) *httptest.Server {
 }
 
 func newTestClient(serverURL string) *Client {
-	return NewClient(Config{
+	client, err := NewClient(Config{
 		AccessKey: "test-ak",
 		DeviceID:  "test-device",
 		UserID:    123,
 		BaseURL:   serverURL,
 		Timeout:   5 * time.Second,
 	})
+	if err != nil {
+		panic(err)
+	}
+	return client
+}
+
+func TestNewClientValidatesConfig(t *testing.T) {
+	_, err := NewClient(Config{})
+	if err == nil {
+		t.Fatal("NewClient() error = nil, want validation failure")
+	}
 }
 
 func TestClient_BindUser(t *testing.T) {

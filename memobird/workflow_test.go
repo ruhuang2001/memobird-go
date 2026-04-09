@@ -1,10 +1,17 @@
 package memobird
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -33,6 +40,66 @@ func (s *stubBindingStore) GetUserBinding(_ context.Context) (int, string, error
 	}
 
 	return s.loadUserID, s.loadDeviceID, nil
+}
+
+type stubImageRenderer struct {
+	urlImage  string
+	htmlImage string
+	urlErr    error
+	htmlErr   error
+}
+
+func (r *stubImageRenderer) RenderURLToImage(_ context.Context, _ string) (string, error) {
+	if r.urlErr != nil {
+		return "", r.urlErr
+	}
+	return r.urlImage, nil
+}
+
+func (r *stubImageRenderer) RenderHTMLToImage(_ context.Context, _ string) (string, error) {
+	if r.htmlErr != nil {
+		return "", r.htmlErr
+	}
+	return r.htmlImage, nil
+}
+
+type pagedStubImageRenderer struct {
+	stubImageRenderer
+	urlImages  []string
+	htmlImages []string
+}
+
+func (r *pagedStubImageRenderer) RenderURLToImages(_ context.Context, _ string) ([]string, error) {
+	if r.urlErr != nil {
+		return nil, r.urlErr
+	}
+	return r.urlImages, nil
+}
+
+func (r *pagedStubImageRenderer) RenderHTMLToImages(_ context.Context, _ string) ([]string, error) {
+	if r.htmlErr != nil {
+		return nil, r.htmlErr
+	}
+	return r.htmlImages, nil
+}
+
+func createBase64PNG(t *testing.T, width, height int) string {
+	t.Helper()
+
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			shade := uint8((x + y) * 255 / (width + height))
+			img.Set(x, y, color.RGBA{shade, shade, shade, 255})
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png.Encode() error = %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
 func TestClient_BindAndPersistStoresBinding(t *testing.T) {
@@ -87,6 +154,32 @@ func TestClient_BindAndPersistSurfacesPersistenceFailure(t *testing.T) {
 	}
 	if client.GetUserID() != 456 {
 		t.Fatalf("client.GetUserID() = %d, want 456", client.GetUserID())
+	}
+}
+
+func TestClient_BindAndPersistRequiresStoreBeforeBinding(t *testing.T) {
+	var bindCalls atomic.Int32
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		bindCalls.Add(1)
+		http.Error(w, "unexpected bind", http.StatusInternalServerError)
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	client.SetUserID(0)
+
+	resp, err := client.BindAndPersist(context.Background(), nil, "test-user")
+	if err == nil || err.Error() != "binding store is required" {
+		t.Fatalf("BindAndPersist() error = %v, want binding store is required", err)
+	}
+	if resp != nil {
+		t.Fatalf("resp = %+v, want nil", resp)
+	}
+	if bindCalls.Load() != 0 {
+		t.Fatalf("bindCalls = %d, want 0", bindCalls.Load())
+	}
+	if client.GetUserID() != 0 {
+		t.Fatalf("client.GetUserID() = %d, want 0", client.GetUserID())
 	}
 }
 
@@ -151,5 +244,71 @@ func TestClient_RestoreUserBindingRejectsDifferentDevice(t *testing.T) {
 	}
 	if client.GetUserID() != 0 {
 		t.Fatalf("client.GetUserID() = %d, want 0", client.GetUserID())
+	}
+}
+
+func TestClient_PrintHTMLAsImagesRequiresRenderer(t *testing.T) {
+	client := newTestClient("http://example.com")
+
+	var render *stubImageRenderer
+	responses, err := client.PrintHTMLAsImages(context.Background(), render, "<p>Hello</p>")
+	if err == nil || err.Error() != "image renderer is required" {
+		t.Fatalf("PrintHTMLAsImages() error = %v, want image renderer is required", err)
+	}
+	if responses != nil {
+		t.Fatalf("responses = %+v, want nil", responses)
+	}
+}
+
+func TestClient_PrintURLAsImagesReturnsPartialResponsesOnProcessingFailure(t *testing.T) {
+	var convertCalls atomic.Int32
+	var printCalls atomic.Int32
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/home/getSignalBase64Pic":
+			convertCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(ImageConvertResponse{
+				BaseResponse: BaseResponse{ShowAPIResCode: 1, ShowAPIResError: "ok"},
+				Result:       "signal-bitmap",
+			})
+		case "/home/printpaper":
+			printCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(PrintResponse{
+				BaseResponse:   BaseResponse{ShowAPIResCode: 1, ShowAPIResError: "ok"},
+				Result:         1,
+				PrintContentID: 321,
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	render := &pagedStubImageRenderer{
+		urlImages: []string{
+			createBase64PNG(t, 32, 32),
+			"not-base64",
+		},
+	}
+
+	responses, err := client.PrintURLAsImages(context.Background(), render, "https://example.com")
+	if err == nil {
+		t.Fatal("PrintURLAsImages() error = nil, want processing failure")
+	}
+	if !strings.Contains(err.Error(), "failed to process page 2/2") {
+		t.Fatalf("PrintURLAsImages() error = %v, want page 2 processing failure", err)
+	}
+	if len(responses) != 1 {
+		t.Fatalf("len(responses) = %d, want 1", len(responses))
+	}
+	if responses[0].PrintContentID != 321 {
+		t.Fatalf("responses[0].PrintContentID = %d, want 321", responses[0].PrintContentID)
+	}
+	if convertCalls.Load() != 1 {
+		t.Fatalf("convertCalls = %d, want 1", convertCalls.Load())
+	}
+	if printCalls.Load() != 1 {
+		t.Fatalf("printCalls = %d, want 1", printCalls.Load())
 	}
 }
