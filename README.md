@@ -1,4 +1,4 @@
-# Memobird Playground
+# Memobird Go
 
 A Go library for binding a Memobird device and printing through the official Memobird Web API.
 
@@ -13,8 +13,10 @@ A Go library for binding a Memobird device and printing through the official Mem
 ## Install
 
 ```bash
-go get github.com/ruhuang2001/memobird-playground
+go get github.com/ruhuang2001/memobird-go
 ```
+
+If the GitHub repository is still on the old `memobird-playground` slug during the rename window, update the repository name first so the module path and repository URL stay aligned.
 
 ## Quick start
 
@@ -26,8 +28,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/ruhuang2001/memobird-playground/memobird"
-	"github.com/ruhuang2001/memobird-playground/storage"
+	"github.com/ruhuang2001/memobird-go/memobird"
+	"github.com/ruhuang2001/memobird-go/storage"
 )
 
 func main() {
@@ -88,6 +90,8 @@ defer r.Close()
 responses, err := client.PrintURLAsImages(ctx, r, "https://example.com")
 ```
 
+For modern pages, dynamic dashboards, or non-trivial CSS, prefer `PrintURLAsImages` and `PrintHTMLAsImages`. They render locally and usually produce more predictable output than the Memobird server-side HTML/URL renderer.
+
 ## Optional config loader
 
 ```go
@@ -145,10 +149,16 @@ storage:
 - `PrintURLAsImages` and `PrintHTMLAsImages` use local rendering and are the recommended path for modern pages.
 - Only `http` and `https` URLs with a non-empty host are accepted.
 
+## Runtime requirements
+
+- `PrintHTMLAsImages` and `PrintURLAsImages` require a locally available Chrome or Chromium browser because `renderer` uses `chromedp` under the hood.
+- Headless Chrome must be able to start in the target environment. On minimal servers or containers, install Chromium and its required system libraries before using `renderer`.
+- If you cannot provide Chrome/Chromium, stick to `PrintHTML` and `PrintURL`, but expect lower fidelity on modern pages because rendering happens on the Memobird side.
+
 ## Project layout
 
 ```text
-memobird-playground/
+memobird-go/
 ├── config/
 ├── formatter/
 ├── memobird/

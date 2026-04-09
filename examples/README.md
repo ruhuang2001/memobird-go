@@ -19,9 +19,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/ruhuang2001/memobird-playground/memobird"
-	"github.com/ruhuang2001/memobird-playground/renderer"
-	"github.com/ruhuang2001/memobird-playground/storage"
+	"github.com/ruhuang2001/memobird-go/memobird"
+	"github.com/ruhuang2001/memobird-go/renderer"
+	"github.com/ruhuang2001/memobird-go/storage"
 )
 
 func main() {
@@ -55,3 +55,5 @@ func main() {
 	}
 }
 ```
+
+The example uses `renderer`, so it expects Chrome or Chromium to be installed locally. If your environment does not provide a browser, switch to `client.PrintHTML(...)` or `client.PrintURL(...)`.

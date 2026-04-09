@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ruhuang2001/memobird-playground/renderer"
+	"github.com/ruhuang2001/memobird-go/renderer"
 )
 
 // BindingStore is the minimal persistence contract needed to remember and

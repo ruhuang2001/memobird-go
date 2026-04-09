@@ -9,9 +9,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/ruhuang2001/memobird-playground/memobird"
-	"github.com/ruhuang2001/memobird-playground/renderer"
-	"github.com/ruhuang2001/memobird-playground/storage"
+	"github.com/ruhuang2001/memobird-go/memobird"
+	"github.com/ruhuang2001/memobird-go/renderer"
+	"github.com/ruhuang2001/memobird-go/storage"
 )
 
 func main() {
