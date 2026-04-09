@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ruhuang2001/memobird-playground/memobird"
+	"github.com/ruhuang2001/memobird-go/memobird"
 	"github.com/spf13/viper"
 )
 

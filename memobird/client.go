@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ruhuang2001/memobird-playground/formatter"
+	"github.com/ruhuang2001/memobird-go/formatter"
 )
 
 const (

@@ -1,4 +1,4 @@
-module github.com/ruhuang2001/memobird-playground
+module github.com/ruhuang2001/memobird-go
 
 go 1.24.0
 
