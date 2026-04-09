@@ -375,6 +375,10 @@ func (r *Renderer) RenderURLToImage(ctx context.Context, pageURL string) (string
 
 // RenderURLToImages renders a webpage to one or more PNG images (base64 encoded).
 func (r *Renderer) RenderURLToImages(ctx context.Context, pageURL string) ([]string, error) {
+	if err := ValidateURL(pageURL); err != nil {
+		return nil, fmt.Errorf("failed to render page: %w", err)
+	}
+
 	fontCSS := `
 		* {
 			font-size: 24px !important;

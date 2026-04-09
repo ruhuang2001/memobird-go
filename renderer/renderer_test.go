@@ -44,6 +44,60 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
+func TestRenderURLEntrypointsValidateURL(t *testing.T) {
+	r := New(5 * time.Second)
+	t.Cleanup(r.Close)
+
+	tests := []struct {
+		name        string
+		url         string
+		errorSubstr string
+	}{
+		{name: "missing scheme", url: "example.com", errorSubstr: "unsupported URL scheme"},
+		{name: "unsafe scheme", url: "file:///etc/passwd", errorSubstr: "unsupported URL scheme"},
+		{name: "missing host", url: "https:///missing-host", errorSubstr: "URL host is required"},
+	}
+
+	entrypoints := []struct {
+		name string
+		call func(context.Context, string) error
+	}{
+		{
+			name: "RenderURLToImage",
+			call: func(ctx context.Context, pageURL string) error {
+				_, err := r.RenderURLToImage(ctx, pageURL)
+				return err
+			},
+		},
+		{
+			name: "RenderURLToImages",
+			call: func(ctx context.Context, pageURL string) error {
+				_, err := r.RenderURLToImages(ctx, pageURL)
+				return err
+			},
+		},
+	}
+
+	for _, entrypoint := range entrypoints {
+		t.Run(entrypoint.name, func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					err := entrypoint.call(context.Background(), tt.url)
+					if err == nil {
+						t.Fatal("expected invalid URL to fail")
+					}
+					if !strings.Contains(err.Error(), "failed to render page") {
+						t.Fatalf("error = %v, want page render prefix", err)
+					}
+					if !strings.Contains(err.Error(), tt.errorSubstr) {
+						t.Fatalf("error = %v, want substring %q", err, tt.errorSubstr)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestNewRenderer(t *testing.T) {
 	tests := []struct {
 		name        string
