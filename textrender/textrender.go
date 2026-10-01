@@ -10,6 +10,7 @@ import (
 	"math"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
@@ -181,7 +182,7 @@ func renderLines(lines []string, face font.Face, opts normalizedOptions) *image.
 	metrics := face.Metrics()
 	ascent := metrics.Ascent.Ceil()
 	descent := metrics.Descent.Ceil()
-	lineStep := maxInt(1, int(math.Ceil(float64(metrics.Height.Ceil())*opts.LineHeight)))
+	lineStep := max(1, int(math.Ceil(float64(metrics.Height.Ceil())*opts.LineHeight)))
 	height := 2*opts.Padding + ascent + descent
 	if len(lines) > 1 {
 		height += (len(lines) - 1) * lineStep
@@ -213,14 +214,17 @@ func wrapText(text string, face font.Face, maxWidth int, maxLines int) []string 
 		return drawer.MeasureString(line).Ceil()
 	}
 
-	paragraphs := strings.Split(text, "\n")
-	lines := make([]string, 0, len(paragraphs))
+	lines := make([]string, 0, 1)
 
-	for _, paragraph := range paragraphs {
+	for paragraph := range strings.SplitSeq(text, "\n") {
 		if paragraph == "" {
 			lines = append(lines, "")
 		} else {
-			lines = append(lines, wrapParagraph(paragraph, measure, maxWidth)...)
+			remainingLines := 0
+			if maxLines > 0 {
+				remainingLines = maxLines - len(lines)
+			}
+			lines = append(lines, wrapParagraph(paragraph, measure, maxWidth, remainingLines)...)
 		}
 
 		if maxLines > 0 && len(lines) >= maxLines {
@@ -231,61 +235,55 @@ func wrapText(text string, face font.Face, maxWidth int, maxLines int) []string 
 	return lines
 }
 
-func wrapParagraph(text string, measure func(string) int, maxWidth int) []string {
+func wrapParagraph(text string, measure func(string) int, maxWidth, maxLines int) []string {
 	if text == "" {
 		return []string{""}
 	}
 
-	remaining := []rune(text)
+	remaining := text
 	lines := make([]string, 0, 1)
 
 	for len(remaining) > 0 {
 		cut := bestWrapIndex(remaining, measure, maxWidth)
-		line := strings.TrimRightFunc(string(remaining[:cut]), unicode.IsSpace)
+		line := strings.TrimRightFunc(remaining[:cut], unicode.IsSpace)
 		if line == "" {
-			line = string(remaining[:cut])
+			line = remaining[:cut]
 		}
 		lines = append(lines, line)
-		remaining = trimLeadingWhitespace(remaining[cut:])
+		if maxLines > 0 && len(lines) >= maxLines {
+			break
+		}
+		remaining = strings.TrimLeftFunc(remaining[cut:], unicode.IsSpace)
 	}
 
 	return lines
 }
 
-func bestWrapIndex(runes []rune, measure func(string) int, maxWidth int) int {
+func bestWrapIndex(text string, measure func(string) int, maxWidth int) int {
 	lastFit := 0
 	lastSpaceFit := 0
 
-	for i := 1; i <= len(runes); i++ {
-		if measure(string(runes[:i])) > maxWidth {
+	for i := 0; i < len(text); {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		i += size
+		if measure(text[:i]) > maxWidth {
 			break
 		}
 		lastFit = i
-		if unicode.IsSpace(runes[i-1]) {
+		if unicode.IsSpace(r) {
 			lastSpaceFit = i
 		}
 	}
 
 	switch {
+	case lastFit == len(text):
+		return lastFit
 	case lastFit == 0:
-		return 1
-	case lastSpaceFit > 0 && lastSpaceFit < len(runes):
+		_, size := utf8.DecodeRuneInString(text)
+		return size
+	case lastSpaceFit > 0:
 		return lastSpaceFit
 	default:
 		return lastFit
 	}
-}
-
-func trimLeadingWhitespace(runes []rune) []rune {
-	for len(runes) > 0 && unicode.IsSpace(runes[0]) && runes[0] != '\n' {
-		runes = runes[1:]
-	}
-	return runes
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

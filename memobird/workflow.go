@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/ruhuang2001/memobird-go/renderer"
+	"github.com/ruhuang2001/memobird-go/internal/printutil"
 )
 
 // BindingStore is the minimal persistence contract needed to remember and
@@ -93,7 +93,7 @@ func (c *Client) PrintURL(ctx context.Context, pageURL string) (*PrintResponse, 
 	if err := c.requireBoundUser(); err != nil {
 		return nil, err
 	}
-	if err := renderer.ValidateURL(pageURL); err != nil {
+	if err := printutil.ValidateURL(pageURL); err != nil {
 		return nil, fmt.Errorf("URL validation failed: %w", err)
 	}
 	return c.PrintFromURL(ctx, pageURL)
@@ -115,7 +115,7 @@ func (c *Client) PrintURLAsImages(ctx context.Context, render imageRenderer, pag
 	if isNilImageRenderer(render) {
 		return nil, fmt.Errorf("image renderer is required")
 	}
-	if err := renderer.ValidateURL(pageURL); err != nil {
+	if err := printutil.ValidateURL(pageURL); err != nil {
 		return nil, fmt.Errorf("URL validation failed: %w", err)
 	}
 	return c.printRenderedImages(ctx, func() ([]string, error) {
@@ -200,7 +200,7 @@ func (c *Client) printRenderedImages(ctx context.Context, renderFn func() ([]str
 
 	responses := make([]*PrintResponse, 0, len(imgBase64Pages))
 	for i, imgBase64 := range imgBase64Pages {
-		processedImg, err := renderer.ProcessImageForPrint(imgBase64)
+		processedImg, err := printutil.ProcessImageForPrint(imgBase64)
 		if err != nil {
 			return responses, fmt.Errorf("failed to process page %d/%d: %w", i+1, len(imgBase64Pages), err)
 		}

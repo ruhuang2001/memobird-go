@@ -1,4 +1,4 @@
-package renderer
+package printutil
 
 import (
 	"bytes"
@@ -225,7 +225,7 @@ func TestValidateProcessedImageBounds(t *testing.T) {
 	}{
 		{name: "valid height", height: 100, wantError: false},
 		{name: "invalid height", height: 0, wantError: true, errorSubstr: "invalid processed image height"},
-		{name: "height exceeds limit", height: MaxRenderHeight + 1, wantError: true, errorSubstr: "processed image height"},
+		{name: "height exceeds limit", height: MaxHeight + 1, wantError: true, errorSubstr: "processed image height"},
 	}
 
 	for _, tt := range tests {

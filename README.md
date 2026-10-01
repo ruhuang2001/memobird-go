@@ -198,6 +198,7 @@ storage:
 ## Notes
 
 - `renderer` is optional and only needed for local URL/HTML rendering.
+- Importing `memobird` alone does not compile Chrome dependencies; existing `renderer` image-processing entrypoints remain available for compatibility.
 - `textrender` is optional and only needed for pure Go text-to-image rendering.
 - `storage` is optional and only needed if you want to persist bindings.
 - `memobird.Client` is safe for concurrent use after construction.
@@ -212,6 +213,7 @@ storage:
 
 - `PrintHTMLAsImages` and `PrintURLAsImages` require a locally available Chrome or Chromium browser because `renderer` uses `chromedp` under the hood.
 - Headless Chrome must be able to start in the target environment. On minimal servers or containers, install Chromium and its required system libraries before using `renderer`.
+- HTML passed to local rendering is loaded as a document and its scripts execute. Use absolute resource URLs (or an explicit HTML `<base>` URL) for external assets; normal browser origin and network restrictions still apply. The configured render delay allows asynchronous content to settle; arbitrary applications may need a longer delay.
 - If you cannot provide Chrome/Chromium, stick to `PrintHTML` and `PrintURL`, but expect lower fidelity on modern pages because rendering happens on the Memobird side.
 
 ## Renderer Split
@@ -221,6 +223,13 @@ The rendering split is now:
 - keep `memobird.Client` as the API-facing entry point
 - use `renderer` for browser-based URL/HTML rendering
 - use `textrender` for pure Go text-first image generation
+
+## Verification
+
+Run `make test` for the existing checks, and `make e2e` for real Chrome rendering
+and a local bind/persist/restore/print workflow. The E2E uses a local stand-in for
+the vendor API and does not send jobs to a printer. PNGs, a submission receipt,
+the client dependency list, and execution logs are saved in `build/review-e2e/`.
 
 ## Project layout
 

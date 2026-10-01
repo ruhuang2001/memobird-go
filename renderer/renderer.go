@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net/url"
 	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/ruhuang2001/memobird-go/internal/printutil"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 	PrinterWidth = 400
 
 	// MaxRenderHeight is the maximum allowed page height for rendering.
-	MaxRenderHeight = 2000
+	MaxRenderHeight = printutil.MaxHeight
 
 	// MaxRenderPixels is the maximum allowed total page pixels for rendering.
 	MaxRenderPixels = PrinterWidth * MaxRenderHeight
@@ -50,10 +50,10 @@ type Renderer struct {
 }
 
 type browserSession struct {
-	allocCtx      context.Context
-	allocCancel   context.CancelFunc
-	browserCtx    context.Context
-	browserCancel context.CancelFunc
+	lifetimeCancel context.CancelFunc
+	allocCancel    context.CancelFunc
+	browserCtx     context.Context
+	browserCancel  context.CancelFunc
 }
 
 // New creates a renderer with the specified timeout.
@@ -94,15 +94,20 @@ func (r *Renderer) closeSession(session **browserSession) {
 		return
 	}
 
+	(*session).lifetimeCancel()
 	(*session).browserCancel()
 	(*session).allocCancel()
 	*session = nil
 }
 
-func (r *Renderer) getBrowserContext(kind string) (context.Context, error) {
+func (r *Renderer) getBrowserContext(requestCtx context.Context, kind string) (context.Context, error) {
+	// ponytail: cold starts serialize here; use per-kind locks if startup contention matters.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if err := requestCtx.Err(); err != nil {
+		return nil, err
+	}
 	if r.closed {
 		return nil, fmt.Errorf("renderer is closed")
 	}
@@ -112,8 +117,29 @@ func (r *Renderer) getBrowserContext(kind string) (context.Context, error) {
 		return nil, err
 	}
 
+	if session := *sessionPtr; session != nil {
+		select {
+		case <-session.browserCtx.Done():
+			r.closeSession(sessionPtr)
+		case <-chromedp.FromContext(session.browserCtx).Browser.LostConnection:
+			r.closeSession(sessionPtr)
+		default:
+		}
+	}
 	if *sessionPtr == nil {
-		*sessionPtr = newBrowserSession(opts)
+		session := newBrowserSession(opts)
+		// Allocate on the persistent parent before creating request tabs. A timeout
+		// context passed to the first Run would also own the browser's lifetime.
+		stop := context.AfterFunc(requestCtx, session.lifetimeCancel)
+		err := chromedp.Run(session.browserCtx)
+		if !stop() || requestCtx.Err() != nil {
+			err = requestCtx.Err()
+		}
+		if err != nil {
+			r.closeSession(&session)
+			return nil, fmt.Errorf("failed to start browser: %w", err)
+		}
+		*sessionPtr = session
 	}
 
 	return (*sessionPtr).browserCtx, nil
@@ -141,52 +167,33 @@ func (r *Renderer) sessionForKind(kind string) (**browserSession, []chromedp.Exe
 }
 
 func newBrowserSession(opts []chromedp.ExecAllocatorOption) *browserSession {
-	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
+	allocCtx, allocCancel := chromedp.NewExecAllocator(lifetimeCtx, opts...)
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
 
 	return &browserSession{
-		allocCtx:      allocCtx,
-		allocCancel:   allocCancel,
-		browserCtx:    browserCtx,
-		browserCancel: browserCancel,
+		lifetimeCancel: lifetimeCancel,
+		allocCancel:    allocCancel,
+		browserCtx:     browserCtx,
+		browserCancel:  browserCancel,
 	}
 }
 
 func (r *Renderer) newTaskContext(parent context.Context, requestCtx context.Context) (context.Context, context.CancelFunc) {
-	baseCtx, baseCancel := context.WithCancel(parent)
-
-	go func() {
-		select {
-		case <-requestCtx.Done():
-			baseCancel()
-		case <-baseCtx.Done():
-		}
-	}()
-
-	timeoutCtx, timeoutCancel := context.WithTimeout(baseCtx, r.timeout)
-	cancel := func() {
-		timeoutCancel()
-		baseCancel()
+	taskCtx, taskCancel := context.WithTimeout(parent, r.timeout)
+	stop := context.AfterFunc(requestCtx, taskCancel)
+	if requestCtx.Err() != nil {
+		taskCancel()
 	}
-	return timeoutCtx, cancel
+	return taskCtx, func() {
+		stop()
+		taskCancel()
+	}
 }
 
 // ValidateURL checks if a URL has a valid format and safe protocol.
 func ValidateURL(pageURL string) error {
-	parsedURL, err := url.Parse(pageURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
-	}
-
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return fmt.Errorf("unsupported URL scheme: %s (only http/https allowed)", parsedURL.Scheme)
-	}
-
-	if parsedURL.Hostname() == "" {
-		return fmt.Errorf("URL host is required")
-	}
-
-	return nil
+	return printutil.ValidateURL(pageURL)
 }
 
 func validateRenderBounds(width, height int) error {
@@ -229,8 +236,8 @@ func segmentHeightForWidth(width int) (int, error) {
 		return 0, fmt.Errorf("render width %dpx is too small for processed output", width)
 	}
 
-	segmentHeight := minInt(MaxRenderHeight, maxByPixels)
-	segmentHeight = minInt(segmentHeight, maxByProcessed)
+	segmentHeight := min(MaxRenderHeight, maxByPixels)
+	segmentHeight = min(segmentHeight, maxByProcessed)
 	if segmentHeight <= 0 {
 		return 0, fmt.Errorf("invalid segment height for width %d", width)
 	}
@@ -250,7 +257,7 @@ func splitRenderBounds(bounds renderBounds) ([]renderSegment, error) {
 
 	segments := make([]renderSegment, 0, (bounds.Height+segmentHeight-1)/segmentHeight)
 	for offset := 0; offset < bounds.Height; offset += segmentHeight {
-		height := minInt(segmentHeight, bounds.Height-offset)
+		height := min(segmentHeight, bounds.Height-offset)
 		if err := validateRenderBounds(bounds.Width, height); err != nil {
 			return nil, err
 		}
@@ -298,7 +305,7 @@ func captureSegment(ctx context.Context, width int, segment renderSegment) (stri
 	var data []byte
 	err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 		var err error
-		data, err = page.CaptureScreenshot().WithFormat(page.CaptureScreenshotFormatPng).WithFromSurface(true).WithClip(clip).Do(ctx)
+		data, err = page.CaptureScreenshot().WithFormat(page.CaptureScreenshotFormatPng).WithFromSurface(true).WithCaptureBeyondViewport(true).WithClip(clip).Do(ctx)
 		return err
 	}))
 	if err != nil {
@@ -309,7 +316,12 @@ func captureSegment(ctx context.Context, width int, segment renderSegment) (stri
 }
 
 func (r *Renderer) renderPageImages(ctx context.Context, kind string, setup chromedp.Tasks) ([]string, error) {
-	browserCtx, err := r.getBrowserContext(kind)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	browserCtx, err := r.getBrowserContext(ctx, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -455,20 +467,11 @@ func (r *Renderer) RenderHTMLToImages(ctx context.Context, html string) ([]strin
 	</html>`, PrinterWidth-16, html)
 
 	images, err := r.renderPageImages(ctx, htmlRendererKind, chromedp.Tasks{
-		chromedp.Navigate("about:blank"),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(fmt.Sprintf(`document.documentElement.innerHTML = %q`, wrappedHTML), nil).Do(ctx)
-		}),
+		chromedp.Navigate("data:text/html;charset=utf-8;base64," + base64.StdEncoding.EncodeToString([]byte(wrappedHTML))),
+		chromedp.WaitReady("body"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to render HTML: %w", err)
 	}
 	return images, nil
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

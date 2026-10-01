@@ -131,7 +131,7 @@ func TestWrapParagraphBreaksLongTokens(t *testing.T) {
 		return len([]rune(line)) * 10
 	}
 
-	lines := wrapParagraph("supercalifragilisticexpialidocious", measure, 40)
+	lines := wrapParagraph("supercalifragilisticexpialidocious", measure, 40, 0)
 	if len(lines) <= 1 {
 		t.Fatalf("len(lines) = %d, want > 1", len(lines))
 	}

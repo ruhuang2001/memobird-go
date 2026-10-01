@@ -268,10 +268,10 @@ func TestRendererClose(t *testing.T) {
 	r.Close()
 	r.Close()
 
-	if _, err := r.getBrowserContext(urlRendererKind); err == nil {
+	if _, err := r.getBrowserContext(t.Context(), urlRendererKind); err == nil {
 		t.Error("expected getBrowserContext(url) to fail after close")
 	}
-	if _, err := r.getBrowserContext(htmlRendererKind); err == nil {
+	if _, err := r.getBrowserContext(t.Context(), htmlRendererKind); err == nil {
 		t.Error("expected getBrowserContext(html) to fail after close")
 	}
 }
