@@ -243,3 +243,10 @@ memobird-go/
 ├── storage/
 └── examples/
 ```
+
+### Go compatibility
+
+The dependency security update for #8 requires Go 1.25.0 or newer. CI uses
+Go 1.26.10 to include the reviewed compiler security fixes. Public rendering
+and client APIs are unchanged. Run `make e2e` for local browser and font
+regression evidence in `build/review-e2e/`.
