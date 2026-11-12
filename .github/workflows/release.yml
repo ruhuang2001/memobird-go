@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  release:
+    name: Tagged release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify tag matches memobird.Version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' memobird/client.go)
+          if [ "$tag" != "$declared" ]; then
+            echo "tag $tag does not match memobird.Version $declared" >&2
+            exit 1
+          fi
+
+      - name: Verify module path and dependency metadata
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go build ./...
+          go vet ./...
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          awk -v tag="$tag" '
+            $0 ~ "^## \\[" tag "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md has no section for $tag" >&2
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --verify-tag
+
+      - name: Report module availability
+        run: |
+          echo "::notice title=Release published::https://pkg.go.dev/${GITHUB_REPOSITORY}@${GITHUB_REF_NAME}"

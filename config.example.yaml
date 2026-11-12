@@ -1,4 +1,4 @@
-# Memobird Playground Configuration
+# memobird-go configuration
 
 memobird:
   access_key: "your-access-key-here"

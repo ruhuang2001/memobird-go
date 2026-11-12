@@ -1,3 +1,4 @@
+// Package formatter prepares HTML text for the Memobird server-side renderer.
 package formatter
 
 import (

@@ -1,3 +1,4 @@
+// Package storage persists Memobird user bindings in SQLite.
 package storage
 
 import (
@@ -6,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	// Register the pure-Go SQLite driver used by Store.
 	_ "modernc.org/sqlite"
 )
 
@@ -23,7 +25,9 @@ func New(dbPath string) (*Store, error) {
 
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to migrate database: %w (close: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 

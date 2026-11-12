@@ -1,3 +1,4 @@
+// Package config loads Memobird client settings from YAML or the environment.
 package config
 
 import (

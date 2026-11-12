@@ -1,3 +1,5 @@
+// Package printutil converts page images into the monochrome format the
+// Memobird printer expects and validates URLs before they are rendered.
 package printutil
 
 import (

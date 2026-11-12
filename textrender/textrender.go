@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	imagedraw "image/draw"
+	"image/png"
 	"math"
 	"strings"
 	"unicode"
@@ -16,7 +17,6 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
-	"image/png"
 )
 
 const (
@@ -103,17 +103,7 @@ func normalizeOptions(text string, opts Options) (normalizedOptions, error) {
 		return normalizedOptions{}, fmt.Errorf("text is required")
 	}
 
-	cfg := normalizedOptions{
-		Width:      opts.Width,
-		Padding:    opts.Padding,
-		FontSize:   opts.FontSize,
-		LineHeight: opts.LineHeight,
-		MaxLines:   opts.MaxLines,
-		DPI:        opts.DPI,
-		Foreground: opts.Foreground,
-		Background: opts.Background,
-		FontData:   opts.FontData,
-	}
+	cfg := normalizedOptions(opts)
 
 	if cfg.Width == 0 {
 		cfg.Width = defaultWidth

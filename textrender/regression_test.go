@@ -77,7 +77,11 @@ func TestWrapTextBoundedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer face.Close()
+	defer func() {
+		if err := face.Close(); err != nil {
+			t.Errorf("close font face: %v", err)
+		}
+	}()
 	measured := &countingFace{Face: face}
 
 	for _, tc := range []struct {

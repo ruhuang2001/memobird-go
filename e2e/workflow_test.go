@@ -46,7 +46,7 @@ func TestE2EPrintWorkflow(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/home/setuserbind":
-			fmt.Fprint(w, `{"showapi_res_code":1,"showapi_userid":42}`)
+			writeBody(w, `{"showapi_res_code":1,"showapi_userid":42}`)
 		case "/home/getSignalBase64Pic":
 			data, err := base64.StdEncoding.DecodeString(r.Form.Get("imgBase64String"))
 			if err != nil {
@@ -67,14 +67,14 @@ func TestE2EPrintWorkflow(t *testing.T) {
 				fail(err)
 				return
 			}
-			fmt.Fprint(w, `{"showapi_res_code":1,"result":"local-bitmap"}`)
+			writeBody(w, `{"showapi_res_code":1,"result":"local-bitmap"}`)
 		case "/home/printpaper":
 			if r.Form.Get("userID") != "42" || r.Form.Get("memobirdID") != "local-device" || r.Form.Get("printcontent") != "P:local-bitmap" {
 				fail(fmt.Errorf("invalid print submission: %v", r.Form))
 				return
 			}
 			printed.Add(1)
-			fmt.Fprint(w, `{"showapi_res_code":1,"result":1,"printcontentid":123}`)
+			writeBody(w, `{"showapi_res_code":1,"result":1,"printcontentid":123}`)
 		default:
 			fail(fmt.Errorf("unexpected endpoint: %s", r.URL.Path))
 		}
@@ -88,7 +88,11 @@ func TestE2EPrintWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
 	if _, err := client.BindAndPersist(t.Context(), store, "local-user"); err != nil {
 		t.Fatal(err)
 	}
@@ -111,5 +115,12 @@ func TestE2EPrintWorkflow(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "workflow-receipt.json"), receipt, 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// writeBody writes a fixture response body, failing the test on a write error.
+func writeBody(w http.ResponseWriter, body string) {
+	if _, err := fmt.Fprint(w, body); err != nil {
+		panic(fmt.Sprintf("write test response: %v", err))
 	}
 }
