@@ -23,6 +23,11 @@ printer, so it is safe to run on any machine with Chrome installed. If Chrome
 lives somewhere unusual, set `MEMOBIRD_E2E` and `MEMOBIRD_E2E_ARTIFACTS`, or
 invoke `go test ./renderer -run TestBrowserE2E` with your own environment.
 
+Set `MEMOBIRD_E2E_DISABLE_SANDBOX=1` when the environment cannot provide a
+Chrome sandbox, such as GitHub's hosted Ubuntu runners, whose AppArmor profile
+blocks unprivileged user namespaces and whose downloaded Chrome for Testing has
+no setuid sandbox helper. Do not set it on a trusted developer machine.
+
 ## Before opening a pull request
 
 Run the same checks CI runs:
@@ -54,13 +59,24 @@ upgrade.
 
 ## Commit messages
 
-Use [Conventional Commits](https://www.conventionalcommits.org/):
+Use [Conventional Commits](https://www.conventionalcommits.org/) with a scope.
+Every commit subject must read `type(scope): summary`; a bare `type: summary`
+is rejected in review, including for `docs`, `test`, and `ci` commits.
 
-- `feat:` a new capability
-- `fix:` a bug fix
-- `docs:` documentation only
-- `chore(deps):` dependency updates
-- `refactor:`, `test:`, `ci:` as their names suggest
+- `feat(memobird):` a new capability in the API client
+- `feat(renderer):` a new capability in the Chrome renderer
+- `feat(config):` configuration schema or loading changes
+- `feat(cli):` command-line entry points
+- `fix(memobird):`, `fix(renderer):`, `fix(storage):` bug fixes
+- `test(e2e):` end-to-end test harness changes
+- `ci(actions):` GitHub Actions workflow changes
+- `docs(contributing):` documentation only
+- `deps:`, `refactor:`, `perf(build):` as their names suggest
+
+Pick the package, not the file: `fix(renderer): keep Chrome sandbox on by
+default`, not `fix: update renderer.go`. One commit carries one logical change;
+split unrelated edits instead of widening the scope. When a change spans
+packages, use the package callers care about and describe the rest in the body.
 
 Keep history linear: rebase onto `main`, and do not create merge commits.
 
