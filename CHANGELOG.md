@@ -7,14 +7,30 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [v0.0.2] - 2026-11-12
+
+### Added
+
+- `renderer.Config.StartupTimeout` bounds the first Chrome launch, defaulting
+  to 45s. It is independent of the per-render `Timeout`.
+
 ### Fixed
 
-- `renderer` bounds the first Chrome launch with `Config.StartupTimeout`
-  instead of the per-render `Timeout`. A cold start on a loaded or virtualized
-  machine can take longer than one render, and the old behavior reported
-  `context deadline exceeded` and discarded a browser that had started fine.
-  The Chrome DevTools WebSocket wait now follows the same budget instead of
-  chromedp's fixed 20s.
+- `renderer` no longer applies the per-render `Timeout` to the first Chrome
+  launch. A cold start on a loaded or virtualized machine can take longer than
+  one render; the old behavior reported `context deadline exceeded` and
+  discarded a browser that had started fine. The launch deadline is reported
+  as a wrapped `context.DeadlineExceeded`, and a caller's context still cancels
+  the launch.
+- The Chrome DevTools WebSocket wait follows `StartupTimeout` instead of
+  chromedp's fixed 20s, so hosts that are merely slow no longer fail with
+  `websocket url timeout reached`.
+
+### Changed
+
+- The end-to-end harness reads `MEMOBIRD_E2E_DISABLE_SANDBOX=1` so CI can run
+  Chrome where no sandbox is available. The renderer still enables the sandbox
+  by default.
 
 ## [v0.0.1] - 2026-11-12
 
@@ -64,5 +80,6 @@ First tagged release. The module path is `github.com/ruhuang2001/memobird-go`.
 
 - Go 1.26.11 or newer, matching the toolchain in `go.mod`.
 
-[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.2...HEAD
+[v0.0.2]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.1...v0.0.2
 [v0.0.1]: https://github.com/ruhuang2001/memobird-go/releases/tag/v0.0.1

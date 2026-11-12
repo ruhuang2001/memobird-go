@@ -11,7 +11,7 @@ print text, HTML, URLs, or images, and poll until the job is on paper.
 ## Install
 
 ```bash
-go get github.com/ruhuang2001/memobird-go@v0.0.1
+go get github.com/ruhuang2001/memobird-go@v0.0.2
 ```
 
 Requires Go 1.26.11 or newer.
