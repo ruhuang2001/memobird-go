@@ -149,6 +149,45 @@ func TestNewRendererWithOptions(t *testing.T) {
 	}
 }
 
+func TestNewWithConfigDefaults(t *testing.T) {
+	cfgTests := []struct {
+		name           string
+		cfg            Config
+		wantTimeout    time.Duration
+		wantDelay      time.Duration
+		wantSandboxOff bool
+	}{
+		{
+			name:        "defaults keep the chrome sandbox on",
+			cfg:         Config{},
+			wantTimeout: 30 * time.Second,
+			wantDelay:   500 * time.Millisecond,
+		},
+		{
+			name:           "sandbox opt out is honored",
+			cfg:            Config{Timeout: 5 * time.Second, RenderDelay: 10 * time.Millisecond, DisableSandbox: true},
+			wantTimeout:    5 * time.Second,
+			wantDelay:      10 * time.Millisecond,
+			wantSandboxOff: true,
+		},
+	}
+
+	for _, tt := range cfgTests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewWithConfig(tt.cfg)
+			if r.timeout != tt.wantTimeout {
+				t.Errorf("timeout = %v, want %v", r.timeout, tt.wantTimeout)
+			}
+			if r.renderDelay != tt.wantDelay {
+				t.Errorf("renderDelay = %v, want %v", r.renderDelay, tt.wantDelay)
+			}
+			if r.disableSandbox != tt.wantSandboxOff {
+				t.Errorf("disableSandbox = %v, want %v", r.disableSandbox, tt.wantSandboxOff)
+			}
+		})
+	}
+}
+
 func TestPrinterWidth(t *testing.T) {
 	if PrinterWidth != 400 {
 		t.Errorf("PrinterWidth = %d, want 400", PrinterWidth)
@@ -247,6 +286,92 @@ func TestSplitRenderBounds(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSegmentHeightForWidth(t *testing.T) {
+	tests := []struct {
+		name        string
+		width       int
+		want        int
+		errorSubstr string
+	}{
+		{name: "printer width", width: PrinterWidth, want: MaxRenderHeight},
+		{name: "wide page is capped by pixel budget", width: 500, want: 1600},
+		{name: "width exactly at pixel budget edge", width: MaxRenderPixels / MaxRenderHeight, want: MaxRenderHeight},
+		{name: "zero width", width: 0, errorSubstr: "invalid render width"},
+		{name: "negative width", width: -1, errorSubstr: "invalid render width"},
+		{name: "width exceeds pixel budget", width: MaxRenderPixels + 1, errorSubstr: "exceeds max supported width"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := segmentHeightForWidth(tt.width)
+			if tt.errorSubstr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.errorSubstr) {
+					t.Fatalf("segmentHeightForWidth(%d) error = %v, want substring %q", tt.width, err, tt.errorSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("segmentHeightForWidth(%d) error = %v", tt.width, err)
+			}
+			if got != tt.want {
+				t.Fatalf("segmentHeightForWidth(%d) = %d, want %d", tt.width, got, tt.want)
+			}
+			if got > MaxRenderHeight {
+				t.Fatalf("segment height %d exceeds MaxRenderHeight %d", got, MaxRenderHeight)
+			}
+			if got*tt.width > MaxRenderPixels {
+				t.Fatalf("segment of %dx%d exceeds MaxRenderPixels %d", tt.width, got, MaxRenderPixels)
+			}
+		})
+	}
+}
+
+// splitRenderBounds must cover the measured height exactly once, with no gaps or
+// overlaps, or paginated output would drop or duplicate rows of content.
+func TestSplitRenderBoundsCoversPageExactly(t *testing.T) {
+	for _, height := range []int{1, 1999, 2000, 2001, 4000, 9999} {
+		segments, err := splitRenderBounds(renderBounds{Width: PrinterWidth, Height: height})
+		if err != nil {
+			t.Fatalf("height %d: unexpected error %v", height, err)
+		}
+		next := 0
+		for _, seg := range segments {
+			if seg.OffsetY != next {
+				t.Fatalf("height %d: segment offset %d, want %d (gap or overlap)", height, seg.OffsetY, next)
+			}
+			next += seg.Height
+		}
+		if next != height {
+			t.Fatalf("height %d: segments cover %d rows", height, next)
+		}
+	}
+}
+
+func TestProcessImageForPrintWrapper(t *testing.T) {
+	if _, err := ProcessImageForPrint("not-valid-base64!!!"); err == nil {
+		t.Fatal("expected invalid base64 to fail")
+	}
+
+	var buf bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for x := range 8 {
+		for y := range 8 {
+			img.Set(x, y, color.White)
+		}
+	}
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := ProcessImageForPrint(base64.StdEncoding.EncodeToString(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("ProcessImageForPrint() error = %v", err)
+	}
+	if _, err := base64.StdEncoding.DecodeString(out); err != nil {
+		t.Fatalf("output is not valid base64: %v", err)
 	}
 }
 

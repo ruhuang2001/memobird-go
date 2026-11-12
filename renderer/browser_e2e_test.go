@@ -65,10 +65,10 @@ func TestBrowserE2E(t *testing.T) {
 		// Longer than renderDelay: navigation must wait for resource loading.
 		time.Sleep(200 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/javascript")
-		fmt.Fprint(w, `document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;left:100px;top:0;width:100px;height:100px;background:rgb(0,255,0)"></div>');`)
+		writeBody(w, `document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;left:100px;top:0;width:100px;height:100px;background:rgb(0,255,0)"></div>');`)
 	})
 	mux.HandleFunc("GET /long", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<html><body style="height:2700px;background:linear-gradient(red 0 2000px, blue 2000px)"><div>Local pagination E2E</div><script src="/script.js"></script></body></html>`)
+		writeBody(w, `<html><body style="height:2700px;background:linear-gradient(red 0 2000px, blue 2000px)"><div>Local pagination E2E</div><script src="/script.js"></script></body></html>`)
 	})
 	mux.HandleFunc("GET /slow", func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
@@ -197,4 +197,11 @@ func TestBrowserE2E(t *testing.T) {
 		}
 		checkColor(t, save(t, "html-startup-recovered", encoded), 20, 20, color.NRGBA{R: 255, A: 255})
 	})
+}
+
+// writeBody writes a fixture response body, failing the test on a write error.
+func writeBody(w http.ResponseWriter, body string) {
+	if _, err := fmt.Fprint(w, body); err != nil {
+		panic(fmt.Sprintf("write test response: %v", err))
+	}
 }

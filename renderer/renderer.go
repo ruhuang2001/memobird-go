@@ -28,6 +28,26 @@ const (
 	htmlRendererKind = "html"
 )
 
+// urlFontCSS is injected into URL renders so typical web pages print legibly on
+// 400px-wide thermal paper.
+const urlFontCSS = `
+	* {
+		font-size: 24px !important;
+		line-height: 1.6 !important;
+	}
+	html, body {
+		margin: 0 !important;
+		padding: 2px !important;
+	}
+	body, p, div, span, li, td, th, a, label {
+		font-size: 24px !important;
+	}
+	h1 { font-size: 32px !important; }
+	h2 { font-size: 28px !important; }
+	h3 { font-size: 26px !important; }
+	small { font-size: 20px !important; }
+`
+
 type renderBounds struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
@@ -43,10 +63,24 @@ type Renderer struct {
 	timeout     time.Duration
 	renderDelay time.Duration
 
+	disableSandbox bool
+
 	mu          sync.Mutex
 	urlSession  *browserSession
 	htmlSession *browserSession
 	closed      bool
+}
+
+// Config configures a Renderer.
+type Config struct {
+	// Timeout bounds a single render call. Defaults to 30s.
+	Timeout time.Duration
+	// RenderDelay waits for asynchronous page content before capture. Defaults to 500ms.
+	RenderDelay time.Duration
+	// DisableSandbox starts Chrome with --no-sandbox. It is required when Chrome
+	// runs as root, such as in most containers, but it drops the browser's process
+	// isolation. Leave it off unless the deployment environment demands it.
+	DisableSandbox bool
 }
 
 type browserSession struct {
@@ -58,21 +92,30 @@ type browserSession struct {
 
 // New creates a renderer with the specified timeout.
 func New(timeout time.Duration) *Renderer {
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-	return &Renderer{timeout: timeout, renderDelay: 500 * time.Millisecond}
+	return NewWithConfig(Config{Timeout: timeout})
 }
 
 // NewWithOptions creates a renderer with custom timeout and render delay.
 func NewWithOptions(timeout, renderDelay time.Duration) *Renderer {
+	return NewWithConfig(Config{Timeout: timeout, RenderDelay: renderDelay})
+}
+
+// NewWithConfig creates a renderer from an explicit configuration.
+func NewWithConfig(cfg Config) *Renderer {
+	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+	renderDelay := cfg.RenderDelay
 	if renderDelay == 0 {
 		renderDelay = 500 * time.Millisecond
 	}
-	return &Renderer{timeout: timeout, renderDelay: renderDelay}
+
+	return &Renderer{
+		timeout:        timeout,
+		renderDelay:    renderDelay,
+		disableSandbox: cfg.DisableSandbox,
+	}
 }
 
 // Close releases background browser resources used by the renderer.
@@ -149,8 +192,10 @@ func (r *Renderer) sessionForKind(kind string) (**browserSession, []chromedp.Exe
 	baseOpts := []chromedp.ExecAllocatorOption{
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
 		chromedp.WindowSize(PrinterWidth, 800),
+	}
+	if r.disableSandbox {
+		baseOpts = append(baseOpts, chromedp.Flag("no-sandbox", true))
 	}
 
 	switch kind {
@@ -391,40 +436,27 @@ func (r *Renderer) RenderURLToImages(ctx context.Context, pageURL string) ([]str
 		return nil, fmt.Errorf("failed to render page: %w", err)
 	}
 
-	fontCSS := `
-		* {
-			font-size: 24px !important;
-			line-height: 1.6 !important;
-		}
-		html, body {
-			margin: 0 !important;
-			padding: 2px !important;
-		}
-		body, p, div, span, li, td, th, a, label {
-			font-size: 24px !important;
-		}
-		h1 { font-size: 32px !important; }
-		h2 { font-size: 28px !important; }
-		h3 { font-size: 26px !important; }
-		small { font-size: 20px !important; }
-	`
-
 	images, err := r.renderPageImages(ctx, urlRendererKind, chromedp.Tasks{
 		chromedp.Navigate(pageURL),
 		chromedp.WaitReady("body"),
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			script := fmt.Sprintf(`
-				var style = document.createElement('style');
-				style.textContent = %q;
-				document.head.appendChild(style);
-			`, fontCSS)
-			return chromedp.Evaluate(script, nil).Do(ctx)
+			return injectPrintFontCSS(ctx, urlFontCSS)
 		}),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to render page: %w", err)
 	}
 	return images, nil
+}
+
+// injectPrintFontCSS appends a stylesheet to the current document.
+func injectPrintFontCSS(ctx context.Context, css string) error {
+	script := fmt.Sprintf(`
+		var style = document.createElement('style');
+		style.textContent = %q;
+		document.head.appendChild(style);
+	`, css)
+	return chromedp.Evaluate(script, nil).Do(ctx)
 }
 
 // RenderHTMLToImage renders HTML content to a PNG image (base64 encoded).
