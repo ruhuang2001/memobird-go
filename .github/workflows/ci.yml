@@ -98,6 +98,11 @@ jobs:
         uses: browser-actions/setup-chrome@v2
       - name: Run local print E2E
         run: make e2e
+        env:
+          # Hosted Ubuntu runners have no usable Chrome sandbox: the AppArmor
+          # profile blocks unprivileged user namespaces and Chrome for Testing
+          # ships no setuid sandbox helper.
+          MEMOBIRD_E2E_DISABLE_SANDBOX: "1"
       - name: Upload E2E evidence
         if: always()
         uses: actions/upload-artifact@v7

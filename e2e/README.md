@@ -3,6 +3,11 @@
 Run `make e2e` with Chrome or Chromium installed. No printer credentials or
 external print service are used. Artifacts are saved in `build/review-e2e/`.
 
+Set `MEMOBIRD_E2E_DISABLE_SANDBOX=1` where Chrome cannot start its sandbox, such
+as GitHub's hosted Ubuntu runners (AppArmor blocks unprivileged user namespaces,
+and Chrome for Testing ships no setuid sandbox helper). CI sets it; keep it unset
+on developer machines.
+
 Failure cases defined before the fixes:
 
 - A short phrase that fits on one line wraps at its final space, or loses its
