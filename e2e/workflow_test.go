@@ -100,7 +100,10 @@ func TestE2EPrintWorkflow(t *testing.T) {
 	if restored, err := client.RestoreUserBinding(t.Context(), store); err != nil || !restored {
 		t.Fatalf("restore = %v, %v", restored, err)
 	}
-	render := renderer.New(20 * time.Second)
+	render := renderer.NewWithConfig(renderer.Config{
+		Timeout:        20 * time.Second,
+		DisableSandbox: os.Getenv("MEMOBIRD_E2E_DISABLE_SANDBOX") == "1",
+	})
 	t.Cleanup(render.Close)
 	responses, err := client.PrintHTMLAsImages(t.Context(), render, `<h1>Local print receipt</h1><script>document.write('<p>Script generated content</p>')</script>`)
 	if err != nil {

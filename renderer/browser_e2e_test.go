@@ -75,7 +75,7 @@ func TestBrowserE2E(t *testing.T) {
 	})
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
-	renderer := NewWithOptions(15*time.Second, 20*time.Millisecond)
+	renderer := NewWithConfig(e2eConfig(15*time.Second, 20*time.Millisecond))
 	t.Cleanup(renderer.Close)
 	externalScript := "data:text/javascript;base64," + base64.StdEncoding.EncodeToString([]byte(`document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;left:100px;top:0;width:100px;height:100px;background:rgb(0,255,0)"></div>');`))
 	html := fmt.Sprintf(`<script>window.addEventListener('load', () => { document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;left:0;top:0;width:100px;height:100px;background:red"></div>'); });</script><script src="%s"></script>`, externalScript)
@@ -90,7 +90,11 @@ func TestBrowserE2E(t *testing.T) {
 			img := save(t, fmt.Sprintf("html-script-%d", i), encoded)
 			checkColor(t, img, 20, 20, color.NRGBA{R: 255, A: 255})
 			checkColor(t, img, 120, 20, color.NRGBA{G: 255, A: 255})
-			browser := chromedp.FromContext(renderer.htmlSession.browserCtx).Browser
+			session := renderer.htmlSession
+			if session == nil {
+				t.Fatal("missing HTML session")
+			}
+			browser := chromedp.FromContext(session.browserCtx).Browser
 			if browser == nil {
 				t.Fatal("shared parent browser was never initialized")
 			}
@@ -121,8 +125,10 @@ func TestBrowserE2E(t *testing.T) {
 			img := save(t, fmt.Sprintf("html-concurrent-%d", i), result.image)
 			checkColor(t, img, 20, 20, color.NRGBA{R: 255, A: 255})
 		}
-		if browser := chromedp.FromContext(renderer.htmlSession.browserCtx).Browser; browser == nil || browser != shared {
-			t.Fatal("concurrent renders did not reuse the shared browser")
+		if session := renderer.htmlSession; session != nil {
+			if browser := chromedp.FromContext(session.browserCtx).Browser; browser == nil || browser != shared {
+				t.Fatal("concurrent renders did not reuse the shared browser")
+			}
 		}
 	})
 	t.Run("pagination_and_request_cancellation", func(t *testing.T) {
@@ -142,6 +148,9 @@ func TestBrowserE2E(t *testing.T) {
 			if i == len(images)-1 {
 				checkColor(t, img, 50, img.Bounds().Dy()-30, color.NRGBA{B: 255, A: 255})
 			}
+		}
+		if renderer.urlSession == nil {
+			t.Fatal("missing URL session")
 		}
 		browser := chromedp.FromContext(renderer.urlSession.browserCtx).Browser
 		request, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
@@ -168,7 +177,7 @@ func TestBrowserE2E(t *testing.T) {
 		checkColor(t, save(t, "html-recovered", encoded), 20, 20, color.NRGBA{R: 255, A: 255})
 	})
 	t.Run("cold_start_cancellation", func(t *testing.T) {
-		r := NewWithOptions(15*time.Second, time.Millisecond)
+		r := NewWithConfig(e2eConfig(15*time.Second, time.Millisecond))
 		t.Cleanup(r.Close)
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 		defer cancel()
@@ -185,7 +194,7 @@ func TestBrowserE2E(t *testing.T) {
 	})
 
 	t.Run("startup_failure_recovery", func(t *testing.T) {
-		r := NewWithOptions(-time.Second, time.Millisecond)
+		r := NewWithConfig(e2eConfig(-time.Second, time.Millisecond))
 		t.Cleanup(r.Close)
 		if _, err := r.RenderHTMLToImage(t.Context(), html); err == nil {
 			t.Fatal("expired startup timeout unexpectedly succeeded")
@@ -203,5 +212,18 @@ func TestBrowserE2E(t *testing.T) {
 func writeBody(w http.ResponseWriter, body string) {
 	if _, err := fmt.Fprint(w, body); err != nil {
 		panic(fmt.Sprintf("write test response: %v", err))
+	}
+}
+
+// e2eConfig builds a renderer config for the local Chrome used by E2E tests.
+// MEMOBIRD_E2E_DISABLE_SANDBOX=1 disables the Chrome sandbox where the
+// environment cannot provide it, such as GitHub's hosted Ubuntu runners, whose
+// AppArmor profile blocks unprivileged user namespaces and whose downloaded
+// Chrome for Testing has no setuid sandbox helper.
+func e2eConfig(timeout, renderDelay time.Duration) Config {
+	return Config{
+		Timeout:        timeout,
+		RenderDelay:    renderDelay,
+		DisableSandbox: os.Getenv("MEMOBIRD_E2E_DISABLE_SANDBOX") == "1",
 	}
 }
