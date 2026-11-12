@@ -216,6 +216,9 @@ func (r *Renderer) sessionForKind(kind string) (**browserSession, []chromedp.Exe
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.WindowSize(PrinterWidth, 800),
+		// chromedp defaults this to 20s regardless of the startup budget; keep
+		// both on the same clock so a slow host reports one meaningful timeout.
+		chromedp.WSURLReadTimeout(r.startupTimeout),
 	}
 	if r.disableSandbox {
 		baseOpts = append(baseOpts, chromedp.Flag("no-sandbox", true))

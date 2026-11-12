@@ -13,6 +13,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   instead of the per-render `Timeout`. A cold start on a loaded or virtualized
   machine can take longer than one render, and the old behavior reported
   `context deadline exceeded` and discarded a browser that had started fine.
+  The Chrome DevTools WebSocket wait now follows the same budget instead of
+  chromedp's fixed 20s.
 
 ## [v0.0.1] - 2026-11-12
 

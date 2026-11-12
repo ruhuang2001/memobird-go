@@ -126,7 +126,11 @@ func TestBrowserE2E(t *testing.T) {
 			checkColor(t, img, 20, 20, color.NRGBA{R: 255, A: 255})
 		}
 		if session := renderer.htmlSession; session != nil {
-			if browser := chromedp.FromContext(session.browserCtx).Browser; browser == nil || browser != shared {
+			if browser := chromedp.FromContext(session.browserCtx).Browser; shared == nil {
+				// Not a reuse failure: this subtest also runs when the first
+				// sequential render could not start a browser at all.
+				t.Log("no shared browser recorded by the sequential case")
+			} else if browser == nil || browser != shared {
 				t.Fatal("concurrent renders did not reuse the shared browser")
 			}
 		}
