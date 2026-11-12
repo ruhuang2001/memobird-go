@@ -60,8 +60,9 @@ type renderSegment struct {
 
 // Renderer renders web content to images using headless Chrome.
 type Renderer struct {
-	timeout     time.Duration
-	renderDelay time.Duration
+	timeout        time.Duration
+	startupTimeout time.Duration
+	renderDelay    time.Duration
 
 	disableSandbox bool
 
@@ -75,6 +76,10 @@ type Renderer struct {
 type Config struct {
 	// Timeout bounds a single render call. Defaults to 30s.
 	Timeout time.Duration
+	// StartupTimeout bounds the first Chrome launch. Defaults to 45s, because a
+	// cold start on a loaded or virtualized machine can take longer than a
+	// render. It does not extend the caller's deadline.
+	StartupTimeout time.Duration
 	// RenderDelay waits for asynchronous page content before capture. Defaults to 500ms.
 	RenderDelay time.Duration
 	// DisableSandbox starts Chrome with --no-sandbox. It is required when Chrome
@@ -106,6 +111,10 @@ func NewWithConfig(cfg Config) *Renderer {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+	startupTimeout := cfg.StartupTimeout
+	if startupTimeout == 0 {
+		startupTimeout = 45 * time.Second
+	}
 	renderDelay := cfg.RenderDelay
 	if renderDelay == 0 {
 		renderDelay = 500 * time.Millisecond
@@ -113,6 +122,7 @@ func NewWithConfig(cfg Config) *Renderer {
 
 	return &Renderer{
 		timeout:        timeout,
+		startupTimeout: startupTimeout,
 		renderDelay:    renderDelay,
 		disableSandbox: cfg.DisableSandbox,
 	}
@@ -172,14 +182,27 @@ func (r *Renderer) getBrowserContext(requestCtx context.Context, kind string) (c
 	if *sessionPtr == nil {
 		session := newBrowserSession(opts)
 		// Allocate on the persistent parent before creating request tabs. A timeout
-		// context passed to the first Run would also own the browser's lifetime.
-		stop := context.AfterFunc(requestCtx, session.lifetimeCancel)
+		// context passed to the first Run would also own the browser's lifetime, so
+		// bound the launch separately and let the caller's deadline still cancel it.
+		startCtx, startCancel := context.WithTimeout(requestCtx, r.startupTimeout)
+		stop := context.AfterFunc(startCtx, session.lifetimeCancel)
 		err := chromedp.Run(session.browserCtx)
-		if !stop() || requestCtx.Err() != nil {
-			err = requestCtx.Err()
-		}
+		// stop reports false when the deadline already fired and tore the browser
+		// down. Canceling startCtx before stopping would always look like a timeout.
+		expired := !stop()
+		startCancel()
 		if err != nil {
 			r.closeSession(&session)
+			return nil, fmt.Errorf("failed to start browser: %w", err)
+		}
+		// A launch that finished after its deadline or after the caller gave up
+		// already killed the browser through the AfterFunc; report why.
+		if expired || requestCtx.Err() != nil {
+			r.closeSession(&session)
+			err = requestCtx.Err()
+			if err == nil {
+				err = fmt.Errorf("browser start exceeded %v: %w", r.startupTimeout, context.DeadlineExceeded)
+			}
 			return nil, fmt.Errorf("failed to start browser: %w", err)
 		}
 		*sessionPtr = session
@@ -364,8 +387,6 @@ func (r *Renderer) renderPageImages(ctx context.Context, kind string, setup chro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
 	browserCtx, err := r.getBrowserContext(ctx, kind)
 	if err != nil {
 		return nil, err

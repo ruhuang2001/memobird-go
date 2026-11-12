@@ -126,6 +126,7 @@ responses, err := client.PrintURLAsImages(ctx, r, "https://example.com")
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `Timeout` | `30s` | Deadline for one browser render |
+| `StartupTimeout` | `45s` | Deadline for the first Chrome launch; a cold start can outlast a render |
 | `RenderDelay` | `500ms` | Wait after load so late content settles |
 | `DisableSandbox` | `false` | Pass `--no-sandbox`; needed in containers that block Chrome's namespace sandbox |
 

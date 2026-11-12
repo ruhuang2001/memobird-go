@@ -194,12 +194,14 @@ func TestBrowserE2E(t *testing.T) {
 	})
 
 	t.Run("startup_failure_recovery", func(t *testing.T) {
-		r := NewWithConfig(e2eConfig(-time.Second, time.Millisecond))
+		cfg := e2eConfig(15*time.Second, time.Millisecond)
+		cfg.StartupTimeout = -time.Second
+		r := NewWithConfig(cfg)
 		t.Cleanup(r.Close)
 		if _, err := r.RenderHTMLToImage(t.Context(), html); err == nil {
 			t.Fatal("expired startup timeout unexpectedly succeeded")
 		}
-		r.timeout = 15 * time.Second
+		r.startupTimeout = 45 * time.Second
 		encoded, err := r.RenderHTMLToImage(t.Context(), html)
 		if err != nil {
 			t.Fatal(err)
@@ -223,6 +225,7 @@ func writeBody(w http.ResponseWriter, body string) {
 func e2eConfig(timeout, renderDelay time.Duration) Config {
 	return Config{
 		Timeout:        timeout,
+		StartupTimeout: 90 * time.Second,
 		RenderDelay:    renderDelay,
 		DisableSandbox: os.Getenv("MEMOBIRD_E2E_DISABLE_SANDBOX") == "1",
 	}

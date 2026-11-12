@@ -154,6 +154,7 @@ func TestNewWithConfigDefaults(t *testing.T) {
 		name           string
 		cfg            Config
 		wantTimeout    time.Duration
+		wantStartup    time.Duration
 		wantDelay      time.Duration
 		wantSandboxOff bool
 	}{
@@ -161,12 +162,14 @@ func TestNewWithConfigDefaults(t *testing.T) {
 			name:        "defaults keep the chrome sandbox on",
 			cfg:         Config{},
 			wantTimeout: 30 * time.Second,
+			wantStartup: 45 * time.Second,
 			wantDelay:   500 * time.Millisecond,
 		},
 		{
 			name:           "sandbox opt out is honored",
-			cfg:            Config{Timeout: 5 * time.Second, RenderDelay: 10 * time.Millisecond, DisableSandbox: true},
+			cfg:            Config{Timeout: 5 * time.Second, StartupTimeout: 2 * time.Minute, RenderDelay: 10 * time.Millisecond, DisableSandbox: true},
 			wantTimeout:    5 * time.Second,
+			wantStartup:    2 * time.Minute,
 			wantDelay:      10 * time.Millisecond,
 			wantSandboxOff: true,
 		},
@@ -177,6 +180,9 @@ func TestNewWithConfigDefaults(t *testing.T) {
 			r := NewWithConfig(tt.cfg)
 			if r.timeout != tt.wantTimeout {
 				t.Errorf("timeout = %v, want %v", r.timeout, tt.wantTimeout)
+			}
+			if r.startupTimeout != tt.wantStartup {
+				t.Errorf("startupTimeout = %v, want %v", r.startupTimeout, tt.wantStartup)
 			}
 			if r.renderDelay != tt.wantDelay {
 				t.Errorf("renderDelay = %v, want %v", r.renderDelay, tt.wantDelay)

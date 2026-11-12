@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- `renderer` bounds the first Chrome launch with `Config.StartupTimeout`
+  instead of the per-render `Timeout`. A cold start on a loaded or virtualized
+  machine can take longer than one render, and the old behavior reported
+  `context deadline exceeded` and discarded a browser that had started fine.
+
 ## [v0.0.1] - 2026-11-12
 
 First tagged release. The module path is `github.com/ruhuang2001/memobird-go`.
