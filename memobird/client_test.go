@@ -411,3 +411,75 @@ func decodeGBKBase64(t *testing.T, encoded string) string {
 
 	return string(decoded)
 }
+
+func TestClient_UserAgentIsConcurrencySafe(t *testing.T) {
+	var got atomic.Value
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		got.Store(r.Header.Get("User-Agent"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"showapi_res_code":1,"showapi_userid":1,"result":"x","printcontentid":1}`))
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	if want := "memobird-go/" + Version; client.UserAgent() != want {
+		t.Fatalf("default UserAgent() = %q, want %q", client.UserAgent(), want)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 50; i++ {
+			client.SetUserAgent("custom-agent")
+			client.SetUserAgent("")
+		}
+	}()
+
+	for i := 0; i < 50; i++ {
+		if _, err := client.ConvertToMonochrome(t.Context(), "AA=="); err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+	}
+	<-done
+
+	if ua, _ := got.Load().(string); ua != "memobird-go/"+Version && ua != "custom-agent" {
+		t.Fatalf("unexpected User-Agent sent: %q", ua)
+	}
+
+	client.SetUserAgent("")
+	if want := "memobird-go/" + Version; client.UserAgent() != want {
+		t.Fatalf("UserAgent() after reset = %q, want %q", client.UserAgent(), want)
+	}
+}
+
+func TestClient_BaseURLTrailingSlashIsNormalized(t *testing.T) {
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/home/setuserbind" {
+			t.Errorf("path = %q, want /home/setuserbind", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"showapi_res_code":1,"showapi_userid":7}`))
+	})
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		AccessKey: "k",
+		DeviceID:  "d",
+		BaseURL:   server.URL + "///",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.BindUser(t.Context(), "u"); err != nil {
+		t.Fatalf("BindUser() error = %v", err)
+	}
+}
+
+func TestClient_RejectsInvalidBaseURL(t *testing.T) {
+	for _, baseURL := range []string{"example.com", "ftp://example.com", "https://"} {
+		t.Run(baseURL, func(t *testing.T) {
+			if _, err := NewClient(Config{AccessKey: "k", DeviceID: "d", BaseURL: baseURL}); err == nil {
+				t.Fatalf("NewClient(BaseURL=%q) error = nil, want validation failure", baseURL)
+			}
+		})
+	}
+}

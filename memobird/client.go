@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +19,41 @@ import (
 const (
 	defaultBaseURL = "https://open.memobird.cn"
 	defaultTimeout = 30 * time.Second
+
+	// defaultUserAgent identifies this library to the Memobird API.
+	defaultUserAgent = "memobird-go/" + Version
+
+	// maxResponseBytes bounds how much of an API response is read into memory.
+	maxResponseBytes = 1 << 20
 )
+
+// Version is the library version, kept in sync with the latest release tag.
+const Version = "0.0.1"
+
+var (
+	// ErrUserIDNotConfigured is returned when a print call runs without a bound user.
+	ErrUserIDNotConfigured = errors.New("user_id not configured")
+	// ErrBindingStoreRequired is returned when a binding workflow is called without a store.
+	ErrBindingStoreRequired = errors.New("binding store is required")
+	// ErrRendererRequired is returned when a local render workflow is called without a renderer.
+	ErrRendererRequired = errors.New("image renderer is required")
+	// ErrNoPagesRendered is returned when a renderer yields no pages to print.
+	ErrNoPagesRendered = errors.New("renderer returned no pages")
+)
+
+// APIError reports a request that the Memobird API answered with a non-success code.
+type APIError struct {
+	Action  string
+	Code    int
+	Message string
+}
+
+func (e *APIError) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("%s failed: showapi_res_code=%d", e.Action, e.Code)
+	}
+	return fmt.Sprintf("%s failed: %s", e.Action, e.Message)
+}
 
 // Config configures a Memobird API client.
 type Config struct {
@@ -28,10 +63,18 @@ type Config struct {
 	BaseURL    string
 	Timeout    time.Duration
 	HTTPClient *http.Client
+	// PrintInterval is the delay between page submissions in the multi-page
+	// print workflows. Zero submits pages back to back.
+	PrintInterval time.Duration
 }
 
 func (c Config) normalizedHTTPClient() *http.Client {
 	if c.HTTPClient != nil {
+		if c.Timeout > 0 && c.HTTPClient.Timeout == 0 {
+			cloned := *c.HTTPClient
+			cloned.Timeout = c.Timeout
+			return &cloned
+		}
 		return c.HTTPClient
 	}
 
@@ -43,11 +86,12 @@ func (c Config) normalizedHTTPClient() *http.Client {
 	return &http.Client{Timeout: timeout}
 }
 
+// normalizedBaseURL trims trailing slashes so endpoint paths always join cleanly.
 func (c Config) normalizedBaseURL() string {
 	if c.BaseURL == "" {
 		return defaultBaseURL
 	}
-	return c.BaseURL
+	return strings.TrimRight(c.BaseURL, "/")
 }
 
 // Validate checks that required client configuration is present.
@@ -57,6 +101,18 @@ func (c Config) Validate() error {
 	}
 	if c.DeviceID == "" {
 		return fmt.Errorf("device ID is required")
+	}
+	if c.BaseURL != "" {
+		parsed, err := url.Parse(c.BaseURL)
+		if err != nil {
+			return fmt.Errorf("invalid base URL: %w", err)
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return fmt.Errorf("invalid base URL %q: scheme must be http or https", c.BaseURL)
+		}
+		if parsed.Host == "" {
+			return fmt.Errorf("invalid base URL %q: host is required", c.BaseURL)
+		}
 	}
 	return nil
 }
@@ -68,7 +124,10 @@ type Client struct {
 	baseURL    string
 	accessKey  string
 	deviceID   string
+	userAgent  atomic.Value // string
 	userID     atomic.Int64
+
+	printInterval time.Duration
 }
 
 // NewClient creates a new Memobird API client with the provided configuration.
@@ -82,9 +141,29 @@ func NewClient(cfg Config) (*Client, error) {
 		baseURL:    cfg.normalizedBaseURL(),
 		accessKey:  cfg.AccessKey,
 		deviceID:   cfg.DeviceID,
+
+		printInterval: cfg.PrintInterval,
 	}
+	client.userAgent.Store(defaultUserAgent)
 	client.SetUserID(cfg.UserID)
 	return client, nil
+}
+
+// SetUserAgent overrides the User-Agent header. An empty value restores the default.
+// It is safe to call concurrently with in-flight requests.
+func (c *Client) SetUserAgent(userAgent string) {
+	if userAgent == "" {
+		userAgent = defaultUserAgent
+	}
+	c.userAgent.Store(userAgent)
+}
+
+// UserAgent returns the User-Agent header currently sent with requests.
+func (c *Client) UserAgent() string {
+	if value, ok := c.userAgent.Load().(string); ok {
+		return value
+	}
+	return defaultUserAgent
 }
 
 // BaseResponse contains common fields returned by all API endpoints.
@@ -119,7 +198,7 @@ type BindResponse struct {
 type PrintResponse struct {
 	BaseResponse
 	Result         int    `json:"result"`
-	SmartGuid      string `json:"smartGuid"`
+	SmartGUID      string `json:"smartGuid"`
 	PrintContentID int    `json:"printcontentid"`
 }
 
@@ -146,7 +225,9 @@ type ImageConvertResponse struct {
 	Result string `json:"result"`
 }
 
-// timestamp returns the current time in the format required by the API (YYYY-MM-DD HH:MM:SS).
+// timestamp returns the current client-local time in the format required by the
+// API (YYYY-MM-DD HH:MM:SS). The instructions define this as 客户端时间, so it
+// deliberately reflects the host's local zone rather than UTC.
 func (c *Client) timestamp() string {
 	return time.Now().Format("2006-01-02 15:04:05")
 }
@@ -166,20 +247,26 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, params url.Valu
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", c.UserAgent())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if closeErr := resp.Body.Close(); err == nil && closeErr != nil {
+		return nil, fmt.Errorf("failed to close response body: %w", closeErr)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+	if len(body) > maxResponseBytes {
+		return nil, fmt.Errorf("response body exceeds max %d bytes", maxResponseBytes)
+	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, summarizeBody(body))
 	}
 
 	return body, nil
@@ -203,10 +290,20 @@ func postFormJSON[T any](ctx context.Context, c *Client, endpoint string, params
 	}
 
 	if !apiResp.IsSuccess() {
-		return nil, fmt.Errorf("%s failed: %s", action, apiResp.Error())
+		code, message := apiResponseStatus(apiResp)
+		return nil, &APIError{Action: action, Code: code, Message: message}
 	}
 
 	return &resp, nil
+}
+
+// apiResponseStatus extracts the raw response code for typed error reporting.
+func apiResponseStatus(resp apiResponse) (int, string) {
+	base, ok := resp.(*BaseResponse)
+	if !ok {
+		return 0, resp.Error()
+	}
+	return base.ShowAPIResCode, base.ShowAPIResError
 }
 
 func cloneValues(values url.Values) url.Values {
@@ -231,7 +328,7 @@ func summarizeBody(body []byte) string {
 
 func (c *Client) requireUserID() error {
 	if c.GetUserID() == 0 {
-		return fmt.Errorf("user_id not configured")
+		return ErrUserIDNotConfigured
 	}
 
 	return nil
@@ -239,6 +336,10 @@ func (c *Client) requireUserID() error {
 
 // BindUser binds a user identifier to the current device, returning the assigned user ID.
 func (c *Client) BindUser(ctx context.Context, userIdentifying string) (*BindResponse, error) {
+	if strings.TrimSpace(userIdentifying) == "" {
+		return nil, fmt.Errorf("user identifying value is required")
+	}
+
 	params := url.Values{}
 	params.Set("memobirdID", c.deviceID)
 	params.Set("useridentifying", userIdentifying)

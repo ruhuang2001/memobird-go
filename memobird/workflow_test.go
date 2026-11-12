@@ -5,14 +5,17 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type stubBindingStore struct {
@@ -310,5 +313,110 @@ func TestClient_PrintURLAsImagesReturnsPartialResponsesOnProcessingFailure(t *te
 	}
 	if printCalls.Load() != 1 {
 		t.Fatalf("printCalls = %d, want 1", printCalls.Load())
+	}
+}
+
+func TestClient_WaitForPrintPollsUntilPrinted(t *testing.T) {
+	var calls atomic.Int32
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		flag := 0
+		if n >= 3 {
+			flag = 1
+		}
+		if _, err := fmt.Fprintf(w, `{"showapi_res_code":1,"printflag":%d,"printcontentid":9}`, flag); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	status, err := client.WaitForPrint(t.Context(), 9, WaitOptions{Interval: time.Millisecond, Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("WaitForPrint() error = %v", err)
+	}
+	if !status.IsPrinted() || status.PrintContentID != 9 {
+		t.Fatalf("status = %+v, want printed job 9", status)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Fatalf("poll count = %d, want 3", got)
+	}
+}
+
+func TestClient_WaitForPrintTimesOut(t *testing.T) {
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"showapi_res_code":1,"printflag":0,"printcontentid":9}`))
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	start := time.Now()
+	status, err := client.WaitForPrint(t.Context(), 9, WaitOptions{Interval: 5 * time.Millisecond, Timeout: 40 * time.Millisecond})
+	if err == nil {
+		t.Fatal("WaitForPrint() error = nil, want timeout")
+	}
+	if status == nil || status.IsPrinted() {
+		t.Fatalf("status = %+v, want last unprinted status", status)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("timeout took %v, want it bounded by opts.Timeout", elapsed)
+	}
+}
+
+func TestClient_WaitForPrintRejectsInvalidID(t *testing.T) {
+	client := newTestClient("https://example.invalid")
+	if _, err := client.WaitForPrint(t.Context(), 0, WaitOptions{}); err == nil {
+		t.Fatal("WaitForPrint(id=0) error = nil, want validation failure")
+	}
+}
+
+func TestClient_WaitForPrintRequiresBoundUser(t *testing.T) {
+	client := newTestClient("https://example.invalid")
+	client.SetUserID(0)
+	if _, err := client.WaitForPrint(t.Context(), 9, WaitOptions{}); !errors.Is(err, ErrUserIDNotConfigured) {
+		t.Fatalf("WaitForPrint() error = %v, want ErrUserIDNotConfigured", err)
+	}
+}
+
+func TestClient_PrintPagesHonorsPrintInterval(t *testing.T) {
+	var stamps []time.Time
+	var mu sync.Mutex
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/home/getSignalBase64Pic":
+			_, _ = w.Write([]byte(`{"showapi_res_code":1,"result":"bitmap"}`))
+		case "/home/printpaper":
+			mu.Lock()
+			stamps = append(stamps, time.Now())
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"showapi_res_code":1,"result":1,"printcontentid":1}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	client.printInterval = 40 * time.Millisecond
+	page := createBase64PNG(t, 400, 40)
+	pages := &pagedStubImageRenderer{htmlImages: []string{page, page}}
+	if _, err := client.PrintHTMLAsImages(t.Context(), pages, "<p>x</p>"); err != nil {
+		t.Fatalf("PrintHTMLAsImages() error = %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(stamps) != 2 {
+		t.Fatalf("submissions = %d, want 2", len(stamps))
+	}
+	if gap := stamps[1].Sub(stamps[0]); gap < 30*time.Millisecond {
+		t.Fatalf("page gap = %v, want >= 30ms", gap)
+	}
+}
+
+func TestClient_RendererWithoutPagesReturnsSentinel(t *testing.T) {
+	client := newTestClient("https://example.invalid")
+	if _, err := client.PrintHTMLAsImages(t.Context(), &pagedStubImageRenderer{}, "<p>x</p>"); !errors.Is(err, ErrNoPagesRendered) {
+		t.Fatalf("error = %v, want ErrNoPagesRendered", err)
 	}
 }
