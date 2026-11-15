@@ -28,7 +28,7 @@ const (
 )
 
 // Version is the library version, kept in sync with the latest release tag.
-const Version = "0.0.3"
+const Version = "0.0.4"
 
 var (
 	// ErrUserIDNotConfigured is returned when a print call runs without a bound user.

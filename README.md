@@ -185,6 +185,29 @@ if _, err := client.PrintImage(ctx, imgBase64); err != nil {
 DPI, foreground and background colours, and custom TTF font data. The default
 embedded font covers Latin; provide `FontData` for broader scripts.
 
+Text is normalized before layout unless `Options.SkipNormalize` is set:
+control characters, zero-width characters, byte-order marks, and non-breaking
+spaces are removed or replaced, runs of spaces collapse, and more than one blank
+line collapses to one. No visible character is ever removed, including one the
+font cannot draw, because whether a glyph exists depends on the font the caller
+chose.
+
+Two calls help before printing paper:
+
+```go
+// Does the font cover this text? An uncovered rune draws as a blank box.
+covered, _ := textrender.FontHasGlyphs(text, cjkFont)
+if !covered {
+	// Pick a font with the needed glyphs before rendering.
+}
+
+// Will it fit, and is MaxLines about to cut it short?
+layout, _ := textrender.Measure(text, textrender.Options{FontData: cjkFont, MaxLines: 40})
+if layout.Truncated {
+	// Split the text instead of printing a slip that stops mid-sentence.
+}
+```
+
 ## Errors
 
 Configuration and workflow failures return exported sentinels, testable with

@@ -32,6 +32,11 @@ var (
 	defaultBackground = color.White
 )
 
+// bundledFontData is the font used when Options.FontData is empty.
+func bundledFontData() []byte {
+	return goregular.TTF
+}
+
 // Options configures pure-Go text rendering.
 type Options struct {
 	Width      int
@@ -47,6 +52,21 @@ type Options struct {
 	// Supplying your own TTF is the simplest way to support glyph sets
 	// outside the bundled font coverage.
 	FontData []byte
+
+	// SkipNormalize disables Normalize, so text reaches the renderer exactly as
+	// given. Use it only when the caller has already prepared the text: without
+	// normalization, a rune the font cannot draw prints as a blank box.
+	SkipNormalize bool
+}
+
+// Layout is the measured shape of rendered text.
+type Layout struct {
+	// Lines is the number of wrapped lines, including blank separator lines.
+	Lines int
+	// Height is the PNG height in pixels for these options.
+	Height int
+	// Truncated reports that MaxLines cut the text short.
+	Truncated bool
 }
 
 type normalizedOptions struct {
@@ -59,9 +79,14 @@ type normalizedOptions struct {
 	Foreground color.Color
 	Background color.Color
 	FontData   []byte
+
+	SkipNormalize bool
 }
 
 // RenderPNG renders text into a PNG image in memory.
+//
+// Text is normalized with Normalize before layout unless SkipNormalize is set,
+// so characters the font cannot draw never reach the bitmap.
 func RenderPNG(text string, opts Options) ([]byte, error) {
 	cfg, err := normalizeOptions(text, opts)
 	if err != nil {
@@ -73,7 +98,12 @@ func RenderPNG(text string, opts Options) ([]byte, error) {
 		return nil, err
 	}
 
-	lines := wrapText(text, face, cfg.Width-2*cfg.Padding, cfg.MaxLines)
+	prepared, err := prepareText(text, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	lines, _ := wrapTextReporting(prepared, face, cfg.Width-2*cfg.Padding, cfg.MaxLines)
 	if len(lines) == 0 {
 		return nil, fmt.Errorf("text produced no renderable lines")
 	}
@@ -86,6 +116,51 @@ func RenderPNG(text string, opts Options) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// prepareText applies Normalize unless the caller opted out. Normalization must
+// run before wrapping: dropping a rune after wrapping would change line breaks
+// and make Measure disagree with RenderPNG.
+func prepareText(text string, cfg normalizedOptions) (string, error) {
+	if cfg.SkipNormalize {
+		return text, nil
+	}
+	normalized := Normalize(text)
+	if strings.TrimSpace(normalized) == "" {
+		return "", fmt.Errorf("text produced no renderable lines")
+	}
+	return normalized, nil
+}
+
+// Measure reports the layout RenderPNG would produce without encoding an image.
+//
+// Use it to reject text that is too tall for the paper before allocating or
+// uploading anything. With a MaxLines limit, Layout.Truncated reports whether
+// rendering would silently drop the rest of the text.
+func Measure(text string, opts Options) (Layout, error) {
+	cfg, err := normalizeOptions(text, opts)
+	if err != nil {
+		return Layout{}, err
+	}
+
+	prepared, err := prepareText(text, cfg)
+	if err != nil {
+		return Layout{}, err
+	}
+
+	face, err := loadFontFace(cfg)
+	if err != nil {
+		return Layout{}, err
+	}
+	defer func() { _ = face.Close() }()
+
+	lines, truncated := wrapTextReporting(prepared, face, cfg.Width-2*cfg.Padding, cfg.MaxLines)
+
+	return Layout{
+		Lines:     len(lines),
+		Height:    imageHeight(len(lines), face, cfg),
+		Truncated: truncated,
+	}, nil
 }
 
 // RenderBase64PNG renders text into a PNG image and returns the base64 payload.
@@ -171,12 +246,8 @@ func loadFontFace(opts normalizedOptions) (font.Face, error) {
 func renderLines(lines []string, face font.Face, opts normalizedOptions) *image.RGBA {
 	metrics := face.Metrics()
 	ascent := metrics.Ascent.Ceil()
-	descent := metrics.Descent.Ceil()
 	lineStep := max(1, int(math.Ceil(float64(metrics.Height.Ceil())*opts.LineHeight)))
-	height := 2*opts.Padding + ascent + descent
-	if len(lines) > 1 {
-		height += (len(lines) - 1) * lineStep
-	}
+	height := imageHeight(len(lines), face, opts)
 
 	img := image.NewRGBA(image.Rect(0, 0, opts.Width, height))
 	imagedraw.Draw(img, img.Bounds(), image.NewUniform(opts.Background), image.Point{}, imagedraw.Src)
@@ -197,7 +268,27 @@ func renderLines(lines []string, face font.Face, opts normalizedOptions) *image.
 	return img
 }
 
+// imageHeight is the PNG height for a given line count. RenderPNG and Measure
+// share it so a measured height always matches the rendered image.
+func imageHeight(lineCount int, face font.Face, opts normalizedOptions) int {
+	metrics := face.Metrics()
+	descent := metrics.Descent.Ceil()
+	lineStep := max(1, int(math.Ceil(float64(metrics.Height.Ceil())*opts.LineHeight)))
+	height := 2*opts.Padding + metrics.Ascent.Ceil() + descent
+	if lineCount > 1 {
+		height += (lineCount - 1) * lineStep
+	}
+	return height
+}
+
 func wrapText(text string, face font.Face, maxWidth int, maxLines int) []string {
+	lines, _ := wrapTextReporting(text, face, maxWidth, maxLines)
+	return lines
+}
+
+// wrapTextReporting is wrapText plus whether maxLines cut the text short, which
+// is what Measure needs and RenderPNG otherwise hides.
+func wrapTextReporting(text string, face font.Face, maxWidth int, maxLines int) ([]string, bool) {
 	measure := func(line string) int {
 		var drawer font.Drawer
 		drawer.Face = face
@@ -218,11 +309,11 @@ func wrapText(text string, face font.Face, maxWidth int, maxLines int) []string 
 		}
 
 		if maxLines > 0 && len(lines) >= maxLines {
-			return lines[:maxLines]
+			return lines[:maxLines], true
 		}
 	}
 
-	return lines
+	return lines, false
 }
 
 func wrapParagraph(text string, measure func(string) int, maxWidth, maxLines int) []string {

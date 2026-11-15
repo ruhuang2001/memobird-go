@@ -7,6 +7,30 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [v0.0.4] - 2026-11-15
+
+### Added
+
+- `textrender.Normalize` removes characters that cost paper or corrupt layout
+  without changing the words: control characters, zero-width characters,
+  byte-order marks, soft hyphens, and non-breaking or fixed-width spaces. It also
+  collapses repeated spaces, more than one blank line, and leading and trailing
+  blank lines. `RenderPNG` and `Measure` normalize by default; set
+  `Options.SkipNormalize` to opt out.
+- `textrender.Measure` reports `Layout{Lines, Height, Truncated}` without encoding
+  an image, so a caller can reject text that exceeds the paper before allocating
+  or uploading anything. `Layout.Truncated` reports when `MaxLines` would cut the
+  text short, which rendering previously hid.
+- `textrender.FontHasGlyphs` reports whether a font covers some text. Uncovered
+  runes print as blank boxes, so a caller can pick a font with the needed coverage
+  instead of discovering the gap on paper.
+
+### Changed
+
+- `Normalize` never removes a visible character, including one the loaded font
+  cannot draw. Whether a glyph exists is a property of the font rather than of the
+  text, so that decision is left to `FontHasGlyphs`.
+
 ## [v0.0.3] - 2026-11-15
 
 ### Added
@@ -104,7 +128,8 @@ First tagged release. The module path is `github.com/ruhuang2001/memobird-go`.
 
 - Go 1.26.11 or newer, matching the toolchain in `go.mod`.
 
-[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.4...HEAD
+[v0.0.4]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.3...v0.0.4
 [v0.0.3]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.1...v0.0.2
 [v0.0.1]: https://github.com/ruhuang2001/memobird-go/releases/tag/v0.0.1
