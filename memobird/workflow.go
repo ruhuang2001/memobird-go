@@ -259,8 +259,17 @@ func (o WaitOptions) normalized() WaitOptions {
 	return o
 }
 
-// WaitForPrint polls the print status until the job reports printed, opts.Timeout
-// elapses, or ctx is canceled. It returns the last observed status.
+// ErrUnknownPrintID is returned when the API has no record of a print content
+// ID, which happens when the ID was never issued by a successful print request.
+var ErrUnknownPrintID = errors.New("memobird: unknown print content ID")
+
+// WaitForPrint polls the print status until the job reaches a terminal state,
+// opts.Timeout elapses, or ctx is canceled. It returns the last observed status.
+//
+// A device that is offline keeps the job pending in the cloud and prints it
+// after it reconnects, so Timeout is the only bound on how long a caller waits;
+// the default exists for that reason and should be raised deliberately rather
+// than removed.
 func (c *Client) WaitForPrint(ctx context.Context, printContentID int, opts WaitOptions) (*PrintStatusResponse, error) {
 	if err := c.requireBoundUser(); err != nil {
 		return nil, err
@@ -283,7 +292,10 @@ func (c *Client) WaitForPrint(ctx context.Context, printContentID int, opts Wait
 			return last, err
 		}
 		last = status
-		if status.IsPrinted() {
+		if status.Terminal() {
+			if status.IsUnknown() {
+				return status, fmt.Errorf("%w: %d", ErrUnknownPrintID, printContentID)
+			}
 			return status, nil
 		}
 

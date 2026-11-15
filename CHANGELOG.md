@@ -7,6 +7,30 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [v0.0.3] - 2026-11-15
+
+### Added
+
+- `PrintFlagUnknown`, `PrintFlagPending`, and `PrintFlagPrinted` name the values
+  `/home/getprintstatus` returns for `printflag`. The API documents none of them;
+  the values and their meanings come from probing the live service against a
+  real device.
+- `PrintStatusResponse.IsUnknown` reports a print content ID the API has no
+  record of, and `PrintStatusResponse.Terminal` reports whether the status can
+  still change.
+- `ErrUnknownPrintID` is returned by `WaitForPrint` for such an ID, which is
+  identified with `errors.Is`.
+
+### Fixed
+
+- `WaitForPrint` stops on an unknown print content ID instead of polling until
+  its timeout. Before this change a caller waited out the whole timeout for a
+  job that would never print.
+- The `WaitForPrint` documentation states that a device that is offline keeps
+  its job pending in the cloud and prints it after reconnecting. The cloud
+  reports no failure for that case, so the caller's timeout is the only bound
+  on how long a pending job waits.
+
 ## [v0.0.2] - 2026-11-12
 
 ### Added
@@ -80,6 +104,7 @@ First tagged release. The module path is `github.com/ruhuang2001/memobird-go`.
 
 - Go 1.26.11 or newer, matching the toolchain in `go.mod`.
 
-[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.3...HEAD
+[v0.0.3]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.1...v0.0.2
 [v0.0.1]: https://github.com/ruhuang2001/memobird-go/releases/tag/v0.0.1

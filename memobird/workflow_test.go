@@ -343,6 +343,28 @@ func TestClient_WaitForPrintPollsUntilPrinted(t *testing.T) {
 	}
 }
 
+func TestClient_WaitForPrintStopsOnUnknownID(t *testing.T) {
+	var calls atomic.Int32
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"showapi_res_code":1,"printflag":-1,"printcontentid":9}`))
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	status, err := client.WaitForPrint(t.Context(), 9, WaitOptions{Interval: time.Millisecond, Timeout: 5 * time.Second})
+	if !errors.Is(err, ErrUnknownPrintID) {
+		t.Fatalf("WaitForPrint() error = %v, want ErrUnknownPrintID", err)
+	}
+	if status == nil || !status.IsUnknown() {
+		t.Fatalf("status = %+v, want unknown status", status)
+	}
+	// An unknown ID is terminal, so a single poll must settle it.
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("poll count = %d, want 1", got)
+	}
+}
+
 func TestClient_WaitForPrintTimesOut(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"showapi_res_code":1,"printflag":0,"printcontentid":9}`))

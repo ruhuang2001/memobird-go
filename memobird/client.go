@@ -28,7 +28,7 @@ const (
 )
 
 // Version is the library version, kept in sync with the latest release tag.
-const Version = "0.0.2"
+const Version = "0.0.3"
 
 var (
 	// ErrUserIDNotConfigured is returned when a print call runs without a bound user.
@@ -207,6 +207,23 @@ func (p *PrintResponse) IsPrinted() bool {
 	return p.Result == 1
 }
 
+// Print-flag values observed from /home/getprintstatus. The API documents none
+// of them, so these come from probing the live service.
+const (
+	// PrintFlagUnknown means the API has no record of the print content ID.
+	// It is a terminal state: the job will never start printing.
+	PrintFlagUnknown = -1
+	// PrintFlagPending means the job is queued or in progress. A powered-off
+	// device stays at this value indefinitely: the cloud holds the job and prints
+	// it after the device reconnects, so callers must impose their own deadline.
+	// It is not a terminal state.
+	PrintFlagPending = 0
+	// PrintFlagPrinted means the job was delivered to the device. A job submitted
+	// while the device was offline reached this flag only after it reconnected,
+	// so 1 confirms delivery, not merely acceptance.
+	PrintFlagPrinted = 1
+)
+
 // PrintStatusResponse contains the status of a print job.
 type PrintStatusResponse struct {
 	BaseResponse
@@ -216,7 +233,18 @@ type PrintStatusResponse struct {
 
 // IsPrinted reports whether the queried print job has finished printing.
 func (p *PrintStatusResponse) IsPrinted() bool {
-	return p.PrintFlag == 1
+	return p.PrintFlag == PrintFlagPrinted
+}
+
+// IsUnknown reports whether the API has no record of this print content ID.
+func (p *PrintStatusResponse) IsUnknown() bool {
+	return p.PrintFlag == PrintFlagUnknown
+}
+
+// Terminal reports whether the status will not change again without a new
+// print request: either the slip printed or the ID is unknown.
+func (p *PrintStatusResponse) Terminal() bool {
+	return p.IsPrinted() || p.IsUnknown()
 }
 
 // ImageConvertResponse contains the result of an image conversion request.
