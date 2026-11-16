@@ -118,7 +118,7 @@ func TestClient_ConvertToMonochrome(t *testing.T) {
 	}
 }
 
-func TestClient_PrintFromURLIncludesExpectedFormFields(t *testing.T) {
+func TestClient_PrintURLIncludesExpectedFormFields(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
 			t.Fatalf("Content-Type = %q, want application/x-www-form-urlencoded", got)
@@ -151,16 +151,16 @@ func TestClient_PrintFromURLIncludesExpectedFormFields(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	resp, err := client.PrintFromURL(context.Background(), "https://example.com")
+	resp, err := client.PrintURL(context.Background(), "https://example.com")
 	if err != nil {
-		t.Fatalf("PrintFromURL() error = %v", err)
+		t.Fatalf("PrintURL() error = %v", err)
 	}
 	if resp.PrintContentID != 999 {
 		t.Fatalf("PrintContentID = %d, want 999", resp.PrintContentID)
 	}
 }
 
-func TestClient_PrintFromHTMLEncodesGBKPayload(t *testing.T) {
+func TestClient_PrintHTMLEncodesGBKPayload(t *testing.T) {
 	html := "<h1>中文测试</h1>"
 
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
@@ -191,9 +191,9 @@ func TestClient_PrintFromHTMLEncodesGBKPayload(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	resp, err := client.PrintFromHTML(context.Background(), html)
+	resp, err := client.PrintHTML(context.Background(), html)
 	if err != nil {
-		t.Fatalf("PrintFromHTML() error = %v", err)
+		t.Fatalf("PrintHTML() error = %v", err)
 	}
 	if resp.PrintContentID != 888 {
 		t.Fatalf("PrintContentID = %d, want 888", resp.PrintContentID)
@@ -264,16 +264,16 @@ func TestClient_PrintingRequiresConfiguredUserID(t *testing.T) {
 		run  func() error
 	}{
 		{
-			name: "PrintFromURL",
+			name: "PrintURL",
 			run: func() error {
-				_, err := client.PrintFromURL(context.Background(), "https://example.com")
+				_, err := client.PrintURL(context.Background(), "https://example.com")
 				return err
 			},
 		},
 		{
-			name: "PrintFromHTML",
+			name: "PrintHTML",
 			run: func() error {
-				_, err := client.PrintFromHTML(context.Background(), "<p>ok</p>")
+				_, err := client.PrintHTML(context.Background(), "<p>ok</p>")
 				return err
 			},
 		},
@@ -326,7 +326,7 @@ func TestClient_DoRequestDoesNotMutateCallerParams(t *testing.T) {
 	}
 }
 
-func TestClient_PrintFromURLFailure(t *testing.T) {
+func TestClient_PrintURLFailure(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		resp := PrintResponse{
 			BaseResponse: BaseResponse{
@@ -339,7 +339,7 @@ func TestClient_PrintFromURLFailure(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	if _, err := client.PrintFromURL(context.Background(), "https://example.com"); err == nil {
+	if _, err := client.PrintURL(context.Background(), "https://example.com"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -352,7 +352,7 @@ func TestClient_InvalidJSONIncludesResponseSnippet(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	_, err := client.PrintFromURL(context.Background(), "https://example.com")
+	_, err := client.PrintURL(context.Background(), "https://example.com")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

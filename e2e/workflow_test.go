@@ -12,16 +12,17 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/ruhuang2001/memobird-go/memobird"
-	"github.com/ruhuang2001/memobird-go/renderer"
-	"github.com/ruhuang2001/memobird-go/storage"
+	"github.com/ruhuang2001/memobird-go/textrender"
 )
 
+// TestE2EPrintWorkflow binds a user, renders Chinese text to an image, and
+// submits it through the local stand-in, which is the path a CJK slip takes
+// because the vendor's HTML renderer cannot draw it. No printer is contacted.
 func TestE2EPrintWorkflow(t *testing.T) {
 	if os.Getenv("MEMOBIRD_E2E") != "1" {
-		t.Skip("run make e2e with Chrome installed")
+		t.Skip("run make e2e")
 	}
 	dir := os.Getenv("MEMOBIRD_E2E_ARTIFACTS")
 	if dir == "" {
@@ -75,44 +76,46 @@ func TestE2EPrintWorkflow(t *testing.T) {
 			}
 			printed.Add(1)
 			writeBody(w, `{"showapi_res_code":1,"result":1,"printcontentid":123}`)
+		case "/home/getprintstatus":
+			writeBody(w, `{"showapi_res_code":1,"printflag":1,"printcontentid":123}`)
 		default:
 			fail(fmt.Errorf("unexpected endpoint: %s", r.URL.Path))
 		}
 	}))
 	t.Cleanup(server.Close)
+
 	client, err := memobird.NewClient(memobird.Config{AccessKey: "local-key", DeviceID: "local-device", BaseURL: server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := storage.New(filepath.Join(t.TempDir(), "binding.db"))
+	if _, err := client.BindAndRemember(t.Context(), "local-user"); err != nil {
+		t.Fatal(err)
+	}
+
+	slip, err := textrender.RenderBase64PNG("Print receipt\nlocal-device, page 1 of 1", textrender.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := store.Close(); err != nil {
-			t.Errorf("close store: %v", err)
-		}
-	})
-	if _, err := client.BindAndPersist(t.Context(), store, "local-user"); err != nil {
-		t.Fatal(err)
-	}
-	client.SetUserID(0)
-	if restored, err := client.RestoreUserBinding(t.Context(), store); err != nil || !restored {
-		t.Fatalf("restore = %v, %v", restored, err)
-	}
-	render := renderer.NewWithConfig(renderer.Config{
-		Timeout:        20 * time.Second,
-		DisableSandbox: os.Getenv("MEMOBIRD_E2E_DISABLE_SANDBOX") == "1",
-	})
-	t.Cleanup(render.Close)
-	responses, err := client.PrintHTMLAsImages(t.Context(), render, `<h1>Local print receipt</h1><script>document.write('<p>Script generated content</p>')</script>`)
+	response, err := client.PrintImage(t.Context(), slip)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(responses) != 1 || converted.Load() != 1 || printed.Load() != 1 || responses[0].PrintContentID != 123 {
-		t.Fatalf("unexpected workflow result: %v, conversions=%d submissions=%d", responses, converted.Load(), printed.Load())
+	if converted.Load() != 1 || printed.Load() != 1 || response.PrintContentID != 123 {
+		t.Fatalf("unexpected workflow result: %+v, conversions=%d submissions=%d", response, converted.Load(), printed.Load())
 	}
-	receipt, err := json.MarshalIndent(responses, "", "  ")
+
+	status, err := client.WaitForPrint(t.Context(), response.PrintContentID, memobird.WaitOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.IsPrinted() {
+		t.Fatalf("status = %+v, want printed", status)
+	}
+
+	receipt, err := json.MarshalIndent(map[string]any{
+		"print":  response,
+		"status": status,
+	}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,6 @@ Thanks for taking the time to improve `memobird-go`.
 ## Requirements
 
 - Go 1.26.11 or newer, the version declared in `go.mod`
-- A local Chrome or Chromium installation to run the browser end-to-end tests
 - Optional: `golangci-lint` v2.15.0, which CI pins
 
 ## Getting started
@@ -15,18 +14,13 @@ git clone git@github.com:ruhuang2001/memobird-go.git
 cd memobird-go
 go mod download
 make test    # go test -race ./...
-make e2e     # real Chrome rendering plus a local workflow, artifacts in build/review-e2e
+make e2e     # local workflow E2E, artifacts in build/review-e2e
 ```
 
 `make e2e` uses a local stand-in for the Memobird API and never contacts a real
-printer, so it is safe to run on any machine with Chrome installed. If Chrome
-lives somewhere unusual, set `MEMOBIRD_E2E` and `MEMOBIRD_E2E_ARTIFACTS`, or
-invoke `go test ./renderer -run TestBrowserE2E` with your own environment.
-
-Set `MEMOBIRD_E2E_DISABLE_SANDBOX=1` when the environment cannot provide a
-Chrome sandbox, such as GitHub's hosted Ubuntu runners, whose AppArmor profile
-blocks unprivileged user namespaces and whose downloaded Chrome for Testing has
-no setuid sandbox helper. Do not set it on a trusted developer machine.
+printer, so it is safe to run anywhere. It sets `MEMOBIRD_E2E` and
+`MEMOBIRD_E2E_ARTIFACTS` itself; set `MEMOBIRD_E2E_ARTIFACTS` to collect the
+artifacts somewhere else.
 
 ## Before opening a pull request
 
@@ -47,11 +41,11 @@ upgrade.
 
 ## Design constraints
 
-- `memobird` is the API client. Keep it free of browser dependencies; `go list
-  -deps ./memobird` must not include `chromedp` or the `renderer` package.
-- `renderer` is opt-in and may depend on Chrome. Anything testable without a
-  browser should have a unit test in `renderer_test.go`; browser behaviour
-  belongs in `browser_e2e_test.go` behind `MEMOBIRD_E2E=1`.
+- `memobird` is the API client. Keep it free of browser, database, and
+  config-loader dependencies; `go list -deps ./memobird` must not include
+  `chromedp`, `modernc.org/sqlite`, or `spf13/viper`.
+- `textrender` is pure Go. A caller that needs a browser renders the page itself
+  and submits the image with `PrintImage`; do not add a renderer package here.
 - Errors that callers must distinguish are exported sentinels and are tested
   with `errors.Is`; remote API rejections are `*APIError`.
 - Print submissions are not idempotent. Do not add hidden retries that could
@@ -64,17 +58,15 @@ Every commit subject must read `type(scope): summary`; a bare `type: summary`
 is rejected in review, including for `docs`, `test`, and `ci` commits.
 
 - `feat(memobird):` a new capability in the API client
-- `feat(renderer):` a new capability in the Chrome renderer
-- `feat(config):` configuration schema or loading changes
-- `feat(cli):` command-line entry points
-- `fix(memobird):`, `fix(renderer):`, `fix(storage):` bug fixes
+- `feat(textrender):` a new capability in text rendering
+- `fix(memobird):`, `fix(textrender):` bug fixes
 - `test(e2e):` end-to-end test harness changes
 - `ci(actions):` GitHub Actions workflow changes
 - `docs(contributing):` documentation only
 - `deps:`, `refactor:`, `perf(build):` as their names suggest
 
-Pick the package, not the file: `fix(renderer): keep Chrome sandbox on by
-default`, not `fix: update renderer.go`. One commit carries one logical change;
+Pick the package, not the file: `fix(textrender): keep trailing spaces in wrapped
+lines`, not `fix: update textrender.go`. One commit carries one logical change;
 split unrelated edits instead of widening the scope. When a change spans
 packages, use the package callers care about and describe the rest in the body.
 

@@ -6,12 +6,13 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Go client for the official Memobird thermal printer Web API. Bind a device,
-print text, HTML, URLs, or images, and poll until the job is on paper.
+print text as an image, or let the service render HTML or a URL, and poll until
+the job is on paper.
 
 ## Install
 
 ```bash
-go get github.com/ruhuang2001/memobird-go@v0.0.2
+go get github.com/ruhuang2001/memobird-go@v0.0.4
 ```
 
 Requires Go 1.26.11 or newer.
@@ -66,105 +67,67 @@ the [package reference](https://pkg.go.dev/github.com/ruhuang2001/memobird-go/me
 
 | Package | Purpose | Extra dependency |
 | --- | --- | --- |
-| `memobird` | Web API client, binding, print workflows, `WaitForPrint` | none |
-| `formatter` | HTML-to-GBK base64 encoding used by `PrintHTML` | none |
-| `textrender` | Pure Go text-to-PNG rendering for receipts and notes | none |
-| `config` | Optional YAML/environment loader | `spf13/viper` |
-| `storage` | Optional SQLite binding store | `modernc.org/sqlite` |
-| `renderer` | Optional local Chrome rendering of URLs and HTML | `chromedp`, Chrome |
+| `memobird` | Web API client, binding, print calls, `WaitForPrint` | none |
+| `textrender` | Pure Go text-to-PNG rendering for receipts and notes | `x/image`, `x/text` |
 
-Importing `memobird` alone does not pull in Chrome: `go list -deps ./memobird`
-contains neither `chromedp` nor `renderer`, and `make e2e` asserts this.
+`memobird` depends only on the standard library. The module has no browser,
+database, or configuration-file dependency: bindings are yours to persist, and
+content that needs a browser is rendered by the caller and submitted with
+`PrintImage`.
 
-## Choosing a print path
+## Print paths
 
-The API can render content on the Memobird side, or this library can render it
-locally and submit page images. Pick by content type:
+| Content | Call | Where rendering happens |
+| --- | --- | --- |
+| Plain HTML, simple CSS, Latin text | `PrintHTML` | Memobird service |
+| Public URL | `PrintURL` | Memobird service |
+| Generated text, including Chinese | `textrender` + `PrintImage` | In process |
+| Any prepared PNG | `PrintImage` | Caller |
 
-| Content | Call | Where rendering happens | Fidelity on modern pages |
-| --- | --- | --- | --- |
-| Plain HTML, simple CSS | `PrintHTML` | Memobird service | Good |
-| Public URL | `PrintURL` | Memobird service | Basic |
-| Modern web page | `PrintURLAsImages` + `renderer` | Local Chrome | Highest |
-| HTML with web fonts | `PrintHTMLAsImages` + `renderer` | Local Chrome | Highest |
-| Generated text | `textrender` + `PrintImage` | In process | Deterministic, no Chrome |
+### Chinese text
+
+Chinese printed through the service-side renderers does not come out correctly,
+so render the text locally and print the image:
+
+```go
+png, err := textrender.RenderBase64PNG("今天要买的三样东西", textrender.Options{
+	FontData: cjkFont, // any TTF or OTF with the glyphs; no embedded CJK font
+})
+if err != nil {
+	log.Fatal(err)
+}
+if _, err := client.PrintImage(ctx, png); err != nil {
+	log.Fatal(err)
+}
+```
 
 ### Binding
 
 ```go
 resp, err := client.BindAndRemember(ctx, "your-user-identifying-string")
-resp, err := client.BindAndPersist(ctx, store, "your-user-identifying-string")
-loaded, err := client.RestoreUserBinding(ctx, store)
 ```
 
-`SetUserID` / `GetUserID` read and write the bound user without the network.
-
-### Remote rendering
-
-```go
-resp, err := client.PrintURL(ctx, "https://example.com")
-resp, err := client.PrintHTML(ctx, "<p>Hello</p>")
-```
-
-### Local rendering then printing
-
-```go
-r, err := renderer.NewWithConfig(renderer.Config{
-	Timeout:     30 * time.Second,
-	RenderDelay: 500 * time.Millisecond,
-})
-if err != nil {
-	log.Fatal(err)
-}
-defer r.Close()
-
-responses, err := client.PrintURLAsImages(ctx, r, "https://example.com")
-```
-
-`renderer.Config` fields:
-
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `Timeout` | `30s` | Deadline for one browser render |
-| `StartupTimeout` | `45s` | Deadline for the first Chrome launch; a cold start can outlast a render |
-| `RenderDelay` | `500ms` | Wait after load so late content settles |
-| `DisableSandbox` | `false` | Pass `--no-sandbox`; needed in containers that block Chrome's namespace sandbox |
-
-`renderer.New(timeout)` and `renderer.NewWithOptions(...)` remain available and
-behave as before.
+`SetUserID` / `GetUserID` read and write the bound user without the network. To
+keep the binding across restarts, store `resp.UserID` yourself and set
+`Config.UserID` on the next start.
 
 ### Waiting for the printer
 
 `WaitForPrint` polls `GetPrintStatus` until `printflag` reports printed, then
 returns the final status. It stops on context cancellation, on the configured
-timeout, and on API errors.
+timeout, on API errors, and when the API has no record of the print content ID.
 
 ```go
 status, err := client.WaitForPrint(ctx, printContentID, memobird.WaitOptions{
-	Interval: time.Second, // default 1s
+	Interval: time.Second,    // default 1s
 	Timeout:  2 * time.Minute, // default 2m
 })
 ```
 
-### Pacing multi-page jobs
+A powered-off device keeps a job pending in the cloud and prints it after it
+reconnects, so `Timeout` is the only bound on how long a caller waits.
 
-A long page renders to several images, and each image is a separate print
-submission. `PrintInterval` spaces them out so the vendor API is not hit back to
-back:
-
-```go
-client, err := memobird.NewClient(memobird.Config{
-	AccessKey:     "your-access-key",
-	DeviceID:      "your-device-id",
-	PrintInterval: 2 * time.Second, // zero = no delay
-})
-```
-
-Pages are not retried automatically: print submissions are not idempotent, and a
-retry could print a page twice. Inspect the returned `[]*PrintResponse` for the
-pages that did succeed.
-
-### Text without Chrome
+### Text without a browser
 
 ```go
 imgBase64, err := textrender.RenderBase64PNG("Hello from pure Go", textrender.Options{
@@ -182,7 +145,7 @@ if _, err := client.PrintImage(ctx, imgBase64); err != nil {
 ```
 
 `textrender.Options` covers width, padding, font size, line height, max lines,
-DPI, foreground and background colours, and custom TTF font data. The default
+DPI, foreground and background colours, and custom TTF/OTF font data. The default
 embedded font covers Latin; provide `FontData` for broader scripts.
 
 Text is normalized before layout unless `Options.SkipNormalize` is set:
@@ -222,9 +185,7 @@ if errors.Is(err, memobird.ErrUserIDNotConfigured) {
 | Sentinel | Returned by |
 | --- | --- |
 | `ErrUserIDNotConfigured` | Any print call before a user is bound |
-| `ErrBindingStoreRequired` | `BindAndPersist`, `RestoreUserBinding` with a nil store |
-| `ErrRendererRequired` | `PrintURLAsImages`, `PrintHTMLAsImages` with a nil renderer |
-| `ErrNoPagesRendered` | Printing when local rendering produced no images |
+| `ErrUnknownPrintID` | `WaitForPrint` when the API has no record of the ID |
 
 A request the remote API rejects returns `*memobird.APIError` with `Action`,
 `Code`, and `Message`. Transport and decoding failures are wrapped with context
@@ -239,80 +200,29 @@ if errors.As(err, &apiErr) {
 
 `memobird.Version` reports the library version at build time.
 
-## Optional configuration
-
-```go
-cfg, err := config.Load("config.yaml")
-if err != nil {
-	log.Fatal(err)
-}
-
-client, err := memobird.NewClient(cfg.Memobird)
-```
-
-Example `config.yaml`:
-
-```yaml
-memobird:
-  access_key: "your-access-key"
-  device_id: "your-device-id"
-  user_id: 0
-  timeout: 30s
-
-storage:
-  db_path: "./memobird.db"
-```
-
-## Optional persistence
-
-```go
-store, err := storage.New(cfg.Storage.DBPath)
-if err != nil {
-	log.Fatal(err)
-}
-defer store.Close()
-
-loaded, err := client.RestoreUserBinding(ctx, store)
-if err != nil {
-	log.Fatal(err)
-}
-if !loaded {
-	if _, err := client.BindAndPersist(ctx, store, "your-user-identifying-string"); err != nil {
-		log.Fatal(err)
-	}
-}
-```
-
-`storage.Store` implements `memobird.BindingStore`. Any type with
-`SaveUserBinding(ctx, userID, deviceID)` and `GetUserBinding(ctx)` works instead.
-
 ## Concurrency
 
 `memobird.Client` is safe for concurrent use once `NewClient` returns.
 `SetUserID`, `SetUserAgent`, and all print methods may be called from multiple
-goroutines. A `renderer.Renderer` is also safe for concurrent use, though each
-render allocates a browser session.
+goroutines.
 
-## Runtime requirements
+## Print submissions are not idempotent
 
-- `PrintHTMLAsImages` and `PrintURLAsImages` need a local Chrome or Chromium,
-  because `renderer` drives it through `chromedp`.
-- In minimal containers, install Chromium and its shared libraries, and set
-  `DisableSandbox: true` if the container blocks Chrome's sandbox.
-- HTML submitted to local rendering executes scripts. Use absolute resource
-  URLs or an explicit `<base>`; the render delay lets async content settle.
-- Without Chrome, use `PrintHTML`, `PrintURL`, or `textrender`.
+`PrintImage` submits one page per call. Nothing is retried automatically, because
+a retry could print a page twice. A caller printing several pages should submit
+them itself, space the calls out if the service needs it, and inspect each
+response.
 
 ## Development
 
 ```bash
 make test    # go test -race ./...
-make e2e     # real Chrome E2E against a local API stand-in
+make e2e     # local workflow E2E against an API stand-in
 make lint    # golangci-lint
 ```
 
-The E2E never contacts a printer. It writes PNGs, a submission receipt, the
-`memobird` dependency list, and logs to `build/review-e2e/`.
+The E2E never contacts a printer. It writes a rendered PNG, a submission receipt,
+the `memobird` dependency list, and logs to `build/review-e2e/`.
 
 ## Go compatibility
 

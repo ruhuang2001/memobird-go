@@ -4,8 +4,6 @@
 // content can come from three paths:
 //
 //   - PrintURL and PrintHTML ask the Memobird service to render the page.
-//   - PrintURLAsImages and PrintHTMLAsImages render locally with the renderer
-//     package, then submit the resulting page images.
 //   - PrintImage submits an already prepared base64 PNG, for example one
 //     produced by the textrender package.
 //
@@ -25,6 +23,12 @@
 //		return err
 //	}
 //
+// # Chinese text
+//
+// Chinese submitted through the service-side renderers (PrintHTML, PrintURL)
+// does not come out correctly, so render the text locally with textrender and
+// submit the resulting image with PrintImage instead.
+//
 // # Concurrency
 //
 // A Client is safe for concurrent use once returned by NewClient. SetUserID,
@@ -33,7 +37,6 @@
 // # Errors
 //
 // Configuration and workflow failures are reported with the exported sentinel
-// errors ErrUserIDNotConfigured, ErrBindingStoreRequired, ErrRendererRequired,
-// and ErrNoPagesRendered, so callers can test them with errors.Is. A request
-// that the remote API rejects returns *APIError.
+// errors ErrUserIDNotConfigured and ErrUnknownPrintID, so callers can test them
+// with errors.Is. A request that the remote API rejects returns *APIError.
 package memobird

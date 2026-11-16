@@ -1,30 +1,26 @@
 # Local end-to-end checks
 
-Run `make e2e` with Chrome or Chromium installed. No printer credentials or
-external print service are used. Artifacts are saved in `build/review-e2e/`.
+Run `make e2e`. No printer credentials or external print service are used, and no
+browser is required. Artifacts are saved in `build/review-e2e/`.
 
-Set `MEMOBIRD_E2E_DISABLE_SANDBOX=1` where Chrome cannot start its sandbox, such
-as GitHub's hosted Ubuntu runners (AppArmor blocks unprivileged user namespaces,
-and Chrome for Testing ships no setuid sandbox helper). CI sets it; keep it unset
-on developer machines.
+The workflow check uses a local HTTP server standing in for the vendor API. It
+binds a user, renders a slip with `textrender`, submits it through the image
+conversion and print endpoints, and asserts the job reports printed. The saved
+PNG is the actual conversion request payload; the JSON receipt records the
+accepted submission and final status. It does not verify physical paper output or
+the vendor's image conversion implementation.
 
 Failure cases defined before the fixes:
 
 - A short phrase that fits on one line wraps at its final space, or loses its
   final word when `MaxLines` is one.
 - A long paragraph is fully measured despite a one-line output limit.
-- Repeated renders start a new Chrome process instead of reusing the browser.
-- Canceling a render stops the shared browser and breaks the next request.
-- Inline HTML scripts do not run, leaving their generated content missing.
-- Long pages lose content when captured in segments.
-- Importing only the API client still compiles Chrome dependencies.
-- Moving image processing changes the rendered print payload or breaks the
-  bind, persist, restore, render, convert, and submit workflow.
-
-The workflow check uses a real browser, SQLite, and a local HTTP server standing
-in for the vendor API. The saved PNG is the actual conversion request payload;
-the JSON receipt records accepted submissions. It does not verify physical
-paper output or the vendor's image conversion implementation.
+- Chinese text submitted through the service-side renderer prints as mojibake
+  instead of the characters the caller sent.
+- Importing the API client pulls a browser, database, or config loader into the
+  dependency graph.
+- The image path changes the payload the conversion endpoint receives, or breaks
+  the bind, convert, submit, and wait workflow.
 
 ## Dependency security regression (#8)
 
@@ -33,7 +29,7 @@ Failure cases recorded before upgrading dependencies:
 - The trusted embedded font or a caller-supplied valid TTF no longer renders.
 - Invalid or truncated custom fonts panic, allocate excessively, or succeed.
 - Rendering changes image dimensions or pixels for the same trusted inputs.
-- A rejected font breaks the next render or the local print workflow.
+- A rejected font breaks the next render.
 - The upgraded modules require a newer Go version than CI actually uses.
 
 `TestE2EFontRendering` exercises the public renderer with the embedded Go Regular

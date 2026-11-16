@@ -7,6 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Removed
+
+- Breaking: the `renderer`, `storage`, and `config` packages are gone, along with
+  `PrintURLAsImages`, `PrintHTMLAsImages`, `BindingStore`, `BindAndPersist`,
+  `PersistUserBinding`, `RestoreUserBinding`, `Config.PrintInterval`, and the
+  `ErrRendererRequired`, `ErrNoPagesRendered`, and `ErrBindingStoreRequired`
+  sentinels. Rendering that needs a browser belongs to the caller: render the
+  page and submit it with `PrintImage`. Bindings are the caller's to persist; set
+  `Config.UserID` from stored state.
+- Removed the duplicate `PrintFromURL` and `PrintFromHTML` entry points;
+  `PrintURL` and `PrintHTML` are the only service-side print calls.
+- The module now requires only `golang.org/x/image` and `golang.org/x/text`.
+
+### Documentation
+
+- Document that Chinese printed through the service-side renderers is not usable,
+  and that the image path (`textrender` + `PrintImage`) is how Chinese is printed.
+
 ## [v0.0.4] - 2026-11-15
 
 ### Added

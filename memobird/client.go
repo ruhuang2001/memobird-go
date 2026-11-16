@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"github.com/ruhuang2001/memobird-go/formatter"
 )
 
 const (
@@ -33,12 +31,6 @@ const Version = "0.0.4"
 var (
 	// ErrUserIDNotConfigured is returned when a print call runs without a bound user.
 	ErrUserIDNotConfigured = errors.New("user_id not configured")
-	// ErrBindingStoreRequired is returned when a binding workflow is called without a store.
-	ErrBindingStoreRequired = errors.New("binding store is required")
-	// ErrRendererRequired is returned when a local render workflow is called without a renderer.
-	ErrRendererRequired = errors.New("image renderer is required")
-	// ErrNoPagesRendered is returned when a renderer yields no pages to print.
-	ErrNoPagesRendered = errors.New("renderer returned no pages")
 )
 
 // APIError reports a request that the Memobird API answered with a non-success code.
@@ -63,9 +55,6 @@ type Config struct {
 	BaseURL    string
 	Timeout    time.Duration
 	HTTPClient *http.Client
-	// PrintInterval is the delay between page submissions in the multi-page
-	// print workflows. Zero submits pages back to back.
-	PrintInterval time.Duration
 }
 
 func (c Config) normalizedHTTPClient() *http.Client {
@@ -126,8 +115,6 @@ type Client struct {
 	deviceID   string
 	userAgent  atomic.Value // string
 	userID     atomic.Int64
-
-	printInterval time.Duration
 }
 
 // NewClient creates a new Memobird API client with the provided configuration.
@@ -141,8 +128,6 @@ func NewClient(cfg Config) (*Client, error) {
 		baseURL:    cfg.normalizedBaseURL(),
 		accessKey:  cfg.AccessKey,
 		deviceID:   cfg.DeviceID,
-
-		printInterval: cfg.PrintInterval,
 	}
 	client.userAgent.Store(defaultUserAgent)
 	client.SetUserID(cfg.UserID)
@@ -391,45 +376,8 @@ func (c *Client) ConvertToMonochrome(ctx context.Context, imgBase64 string) (*Im
 	return postFormJSON[ImageConvertResponse](ctx, c, "/home/getSignalBase64Pic", params, "image conversion")
 }
 
-// PrintFromURL prints content from a web page by providing its URL to the print service.
-func (c *Client) PrintFromURL(ctx context.Context, pageURL string) (*PrintResponse, error) {
-	if err := c.requireUserID(); err != nil {
-		return nil, err
-	}
-
-	params := url.Values{}
-	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.GetUserID()))
-	params.Set("printUrl", pageURL)
-
-	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromUrl", params, "print from URL")
-}
-
-// PrintFromHTML prints HTML content directly to the thermal printer.
-func (c *Client) PrintFromHTML(ctx context.Context, html string) (*PrintResponse, error) {
-	if err := c.requireUserID(); err != nil {
-		return nil, err
-	}
-
-	encoded, err := formatter.EncodeHTMLToGBKBase64(html)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode HTML: %w", err)
-	}
-
-	params := url.Values{}
-	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.GetUserID()))
-	params.Set("printHtml", encoded)
-
-	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromHtml", params, "print from HTML")
-}
-
 // PrintImage prints a base64-encoded image after converting it to printer bitmap format.
 func (c *Client) PrintImage(ctx context.Context, imgBase64 string) (*PrintResponse, error) {
-	return c.printImage(ctx, imgBase64)
-}
-
-func (c *Client) printImage(ctx context.Context, imgBase64 string) (*PrintResponse, error) {
 	if err := c.requireUserID(); err != nil {
 		return nil, err
 	}

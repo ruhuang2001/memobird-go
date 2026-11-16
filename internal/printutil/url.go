@@ -1,3 +1,4 @@
+// Package printutil validates URLs before they are handed to the Memobird API.
 package printutil
 
 import (
