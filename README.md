@@ -6,8 +6,13 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Go client for the official Memobird thermal printer Web API. Bind a device,
-print text as an image, or let the service render HTML or a URL, and poll until
-the job is on paper.
+print text or an image, and poll until the job is on paper.
+
+Every print goes through an image. The vendor's service-side renderers cannot
+decode GBK or UTF-8, so Chinese sent as HTML or a URL reaches the paper as
+mojibake. Rather than expose a path that works for Latin text and silently
+corrupts everything else, this client prints only images, and offers two entry
+points over that one path.
 
 ## Install
 
@@ -28,6 +33,7 @@ import (
 	"time"
 
 	"github.com/ruhuang2001/memobird-go/memobird"
+	"github.com/ruhuang2001/memobird-go/textrender"
 )
 
 func main() {
@@ -47,7 +53,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	printed, err := client.PrintHTML(ctx, "<h1>Hello, Memobird!</h1>")
+	printed, err := client.PrintText(ctx, "Hello, Memobird!", textrender.Options{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -65,41 +71,43 @@ the [package reference](https://pkg.go.dev/github.com/ruhuang2001/memobird-go/me
 
 ## Packages
 
-| Package | Purpose | Extra dependency |
+| Package | Purpose | Dependency |
 | --- | --- | --- |
-| `memobird` | Web API client, binding, print calls, `WaitForPrint` | none |
-| `textrender` | Pure Go text-to-PNG rendering for receipts and notes | `x/image`, `x/text` |
+| `memobird` | Web API client, binding, `PrintText`, `PrintImage`, `WaitForPrint` | `x/image` (through `textrender`) |
+| `textrender` | Pure Go text-to-PNG rendering, also usable on its own | `x/image`, `x/text` |
 
-`memobird` depends only on the standard library. The module has no browser,
-database, or configuration-file dependency: bindings are yours to persist, and
-content that needs a browser is rendered by the caller and submitted with
-`PrintImage`.
+The module has no browser, database, or configuration-file dependency: bindings
+are yours to persist, and content that needs a browser is rendered by the caller
+and submitted with `PrintImage`.
 
-## Print paths
+## Two print calls
 
-| Content | Call | Where rendering happens |
-| --- | --- | --- |
-| Plain HTML, simple CSS, Latin text | `PrintHTML` | Memobird service |
-| Public URL | `PrintURL` | Memobird service |
-| Generated text, including Chinese | `textrender` + `PrintImage` | In process |
-| Any prepared PNG | `PrintImage` | Caller |
+| You have | Call |
+| --- | --- |
+| Text | `PrintText` |
+| A PNG, or a page you rendered yourself | `PrintImage` |
+
+Both end at the same place: `PrintImage` converts the image to the printer's
+bitmap format and submits it. `PrintText` renders the string with `textrender`
+first, so it takes the same `textrender.Options`.
 
 ### Chinese text
 
-Chinese printed through the service-side renderers does not come out correctly,
-so render the text locally and print the image:
+Chinese works through the same call; pass a font that covers it. The bundled font
+is Latin-only, and `PrintText` returns `ErrMissingGlyphs` instead of printing a
+blank box for every character the font cannot draw.
 
 ```go
-png, err := textrender.RenderBase64PNG("今天要买的三样东西", textrender.Options{
+_, err := client.PrintText(ctx, "今天要买的三样东西", textrender.Options{
 	FontData: cjkFont, // any TTF or OTF with the glyphs; no embedded CJK font
 })
 if err != nil {
 	log.Fatal(err)
 }
-if _, err := client.PrintImage(ctx, png); err != nil {
-	log.Fatal(err)
-}
 ```
+
+To print a web page, render it yourself (headless Chrome, for example) and hand
+the PNG to `PrintImage`; the vendor's URL renderer cannot print Chinese either.
 
 ### Binding
 
@@ -127,22 +135,7 @@ status, err := client.WaitForPrint(ctx, printContentID, memobird.WaitOptions{
 A powered-off device keeps a job pending in the cloud and prints it after it
 reconnects, so `Timeout` is the only bound on how long a caller waits.
 
-### Text without a browser
-
-```go
-imgBase64, err := textrender.RenderBase64PNG("Hello from pure Go", textrender.Options{
-	Width:    384,
-	Padding:  16,
-	FontSize: 20,
-})
-if err != nil {
-	log.Fatal(err)
-}
-
-if _, err := client.PrintImage(ctx, imgBase64); err != nil {
-	log.Fatal(err)
-}
-```
+### Layout
 
 `textrender.Options` covers width, padding, font size, line height, max lines,
 DPI, foreground and background colours, and custom TTF/OTF font data. The default
@@ -186,6 +179,7 @@ if errors.Is(err, memobird.ErrUserIDNotConfigured) {
 | --- | --- |
 | `ErrUserIDNotConfigured` | Any print call before a user is bound |
 | `ErrUnknownPrintID` | `WaitForPrint` when the API has no record of the ID |
+| `ErrMissingGlyphs` | `PrintText` when the font cannot draw the text |
 
 A request the remote API rejects returns `*memobird.APIError` with `Action`,
 `Code`, and `Message`. Transport and decoding failures are wrapped with context

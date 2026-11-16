@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ruhuang2001/memobird-go/memobird"
+	"github.com/ruhuang2001/memobird-go/textrender"
 )
 
 func main() {
@@ -30,7 +31,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if _, err := client.PrintHTML(ctx, "<h1>Hello, Memobird!</h1>"); err != nil {
+	if _, err := client.PrintText(ctx, "Hello, Memobird!", textrender.Options{}); err != nil {
 		log.Fatal(err)
 	}
 }

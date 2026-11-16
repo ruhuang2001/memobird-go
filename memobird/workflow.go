@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"time"
 
-	"github.com/ruhuang2001/memobird-go/internal/formatter"
-	"github.com/ruhuang2001/memobird-go/internal/printutil"
+	"github.com/ruhuang2001/memobird-go/textrender"
 )
 
 // BindAndRemember binds a user identifier and stores the returned user ID in the client.
@@ -21,40 +19,36 @@ func (c *Client) BindAndRemember(ctx context.Context, userIdentifying string) (*
 	return resp, nil
 }
 
-// PrintURL validates the URL and submits it for printing.
-func (c *Client) PrintURL(ctx context.Context, pageURL string) (*PrintResponse, error) {
-	if err := c.requireUserID(); err != nil {
-		return nil, err
-	}
-	if err := printutil.ValidateURL(pageURL); err != nil {
-		return nil, fmt.Errorf("URL validation failed: %w", err)
-	}
+// ErrMissingGlyphs is returned when the font cannot draw some of the text, which
+// would print a blank box in place of each character it lacks.
+var ErrMissingGlyphs = errors.New("memobird: font does not cover the text")
 
-	params := url.Values{}
-	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.GetUserID()))
-	params.Set("printUrl", pageURL)
-
-	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromUrl", params, "print from URL")
-}
-
-// PrintHTML submits HTML for printing.
-func (c *Client) PrintHTML(ctx context.Context, html string) (*PrintResponse, error) {
+// PrintText renders text to an image and prints it.
+//
+// Every print goes through an image because the vendor does not decode GBK, so
+// Chinese sent as text or HTML reaches the paper as mojibake. opts are
+// textrender.Options: the bundled font covers Latin only, so pass a CJK face as
+// FontData for Chinese. Text the font cannot draw returns ErrMissingGlyphs
+// rather than a blank box per character.
+func (c *Client) PrintText(ctx context.Context, text string, opts textrender.Options) (*PrintResponse, error) {
 	if err := c.requireUserID(); err != nil {
 		return nil, err
 	}
 
-	encoded, err := formatter.EncodeHTMLToGBKBase64(html)
+	covered, err := textrender.FontHasGlyphs(text, opts.FontData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode HTML: %w", err)
+		return nil, err
+	}
+	if !covered {
+		return nil, fmt.Errorf("%w: pass textrender.Options.FontData for this script", ErrMissingGlyphs)
 	}
 
-	params := url.Values{}
-	params.Set("memobirdID", c.deviceID)
-	params.Set("userID", fmt.Sprintf("%d", c.GetUserID()))
-	params.Set("printHtml", encoded)
+	imgBase64, err := textrender.RenderBase64PNG(text, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render text: %w", err)
+	}
 
-	return postFormJSON[PrintResponse](ctx, c, "/home/printpaperFromHtml", params, "print from HTML")
+	return c.PrintImage(ctx, imgBase64)
 }
 
 // WaitOptions tunes WaitForPrint polling.

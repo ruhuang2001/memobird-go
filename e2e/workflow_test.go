@@ -92,11 +92,7 @@ func TestE2EPrintWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	slip, err := textrender.RenderBase64PNG("Print receipt\nlocal-device, page 1 of 1", textrender.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := client.PrintImage(t.Context(), slip)
+	response, err := client.PrintText(t.Context(), "Print receipt\nlocal-device, page 1 of 1", textrender.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

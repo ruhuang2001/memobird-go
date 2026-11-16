@@ -1,9 +1,12 @@
 package memobird
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,8 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/transform"
+	"github.com/ruhuang2001/memobird-go/textrender"
 )
 
 func newTestServer(handler http.HandlerFunc) *httptest.Server {
@@ -94,109 +96,88 @@ func TestClient_GetPrintStatus(t *testing.T) {
 	}
 }
 
-func TestClient_ConvertToMonochrome(t *testing.T) {
-	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/home/getSignalBase64Pic" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-
-		resp := ImageConvertResponse{
-			BaseResponse: BaseResponse{ShowAPIResCode: 1, ShowAPIResError: "ok"},
-			Result:       "converted-base64-data",
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-	defer server.Close()
-
-	client := newTestClient(server.URL)
-	resp, err := client.ConvertToMonochrome(context.Background(), "original-base64")
-	if err != nil {
-		t.Fatalf("ConvertToMonochrome() error = %v", err)
-	}
-	if resp.Result != "converted-base64-data" {
-		t.Fatalf("Result = %s, want converted-base64-data", resp.Result)
-	}
-}
-
-func TestClient_PrintURLIncludesExpectedFormFields(t *testing.T) {
-	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
-			t.Fatalf("Content-Type = %q, want application/x-www-form-urlencoded", got)
-		}
-
-		form := mustReadForm(t, r)
-		if got := form.Get("memobirdID"); got != "test-device" {
-			t.Fatalf("memobirdID = %q, want %q", got, "test-device")
-		}
-		if got := form.Get("userID"); got != "123" {
-			t.Fatalf("userID = %q, want %q", got, "123")
-		}
-		if got := form.Get("printUrl"); got != "https://example.com" {
-			t.Fatalf("printUrl = %q, want https://example.com", got)
-		}
-		if got := form.Get("ak"); got != "test-ak" {
-			t.Fatalf("ak = %q, want %q", got, "test-ak")
-		}
-		if form.Get("timestamp") == "" {
-			t.Fatal("timestamp is empty")
-		}
-
-		resp := PrintResponse{
-			BaseResponse:   BaseResponse{ShowAPIResCode: 1, ShowAPIResError: "ok"},
-			Result:         1,
-			PrintContentID: 999,
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-	defer server.Close()
-
-	client := newTestClient(server.URL)
-	resp, err := client.PrintURL(context.Background(), "https://example.com")
-	if err != nil {
-		t.Fatalf("PrintURL() error = %v", err)
-	}
-	if resp.PrintContentID != 999 {
-		t.Fatalf("PrintContentID = %d, want 999", resp.PrintContentID)
-	}
-}
-
-func TestClient_PrintHTMLEncodesGBKPayload(t *testing.T) {
-	html := "<h1>中文测试</h1>"
+func TestClient_PrintTextSubmitsRenderedImage(t *testing.T) {
+	var submitted atomic.Value // []byte
+	var printCalls atomic.Int32
 
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/home/printpaperFromHtml" {
+		switch r.URL.Path {
+		case "/home/getSignalBase64Pic":
+			form := mustReadForm(t, r)
+			raw, err := base64.StdEncoding.DecodeString(form.Get("imgBase64String"))
+			if err != nil {
+				t.Fatalf("imgBase64String is not base64: %v", err)
+			}
+			submitted.Store(raw)
+			_, _ = w.Write([]byte(`{"showapi_res_code":1,"result":"bitmap"}`))
+		case "/home/printpaper":
+			printCalls.Add(1)
+			_, _ = w.Write([]byte(`{"showapi_res_code":1,"result":1,"printcontentid":55}`))
+		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-
-		form := mustReadForm(t, r)
-		if got := form.Get("memobirdID"); got != "test-device" {
-			t.Fatalf("memobirdID = %q, want %q", got, "test-device")
-		}
-		if got := form.Get("userID"); got != "123" {
-			t.Fatalf("userID = %q, want %q", got, "123")
-		}
-
-		decoded := decodeGBKBase64(t, form.Get("printHtml"))
-		if decoded != html {
-			t.Fatalf("decoded HTML = %q, want %q", decoded, html)
-		}
-
-		resp := PrintResponse{
-			BaseResponse:   BaseResponse{ShowAPIResCode: 1, ShowAPIResError: "ok"},
-			Result:         1,
-			PrintContentID: 888,
-		}
-		_ = json.NewEncoder(w).Encode(resp)
 	})
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	resp, err := client.PrintHTML(context.Background(), html)
+	resp, err := client.PrintText(context.Background(), "Print receipt", textrender.Options{})
 	if err != nil {
-		t.Fatalf("PrintHTML() error = %v", err)
+		t.Fatalf("PrintText() error = %v", err)
 	}
-	if resp.PrintContentID != 888 {
-		t.Fatalf("PrintContentID = %d, want 888", resp.PrintContentID)
+	if resp.PrintContentID != 55 {
+		t.Fatalf("PrintContentID = %d, want 55", resp.PrintContentID)
+	}
+	if printCalls.Load() != 1 {
+		t.Fatalf("printCalls = %d, want 1", printCalls.Load())
+	}
+
+	// The payload must be a real 384px-wide PNG, not the text: sending the text
+	// is exactly what the vendor cannot decode.
+	raw, _ := submitted.Load().([]byte)
+	if len(raw) == 0 {
+		t.Fatal("no image was submitted for conversion")
+	}
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("submitted payload is not a PNG: %v", err)
+	}
+	if img.Bounds().Dx() != 384 {
+		t.Fatalf("image width = %d, want 384", img.Bounds().Dx())
+	}
+}
+
+func TestClient_PrintTextWrapsRenderFailure(t *testing.T) {
+	client := newTestClient("https://example.invalid")
+
+	// Invalid font bytes must surface as a render error, not a panic or a
+	// partially printed slip.
+	_, err := client.PrintText(context.Background(), "ok", textrender.Options{FontData: []byte("not a font")})
+	if err == nil {
+		t.Fatal("PrintText() error = nil, want a font parse failure")
+	}
+	if errors.Is(err, ErrMissingGlyphs) {
+		t.Fatalf("PrintText() error = %v, want the parse failure rather than ErrMissingGlyphs", err)
+	}
+}
+
+func TestClient_PrintTextRejectsUncoveredGlyphs(t *testing.T) {
+	var serverCalls atomic.Int32
+	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		serverCalls.Add(1)
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	})
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+
+	// The bundled font covers Latin only, so Chinese without FontData must fail
+	// instead of printing a blank box per character.
+	_, err := client.PrintText(context.Background(), "中文", textrender.Options{})
+	if !errors.Is(err, ErrMissingGlyphs) {
+		t.Fatalf("PrintText() error = %v, want ErrMissingGlyphs", err)
+	}
+	if serverCalls.Load() != 0 {
+		t.Fatalf("serverCalls = %d, want 0: nothing may be sent when the font cannot draw the text", serverCalls.Load())
 	}
 }
 
@@ -264,16 +245,9 @@ func TestClient_PrintingRequiresConfiguredUserID(t *testing.T) {
 		run  func() error
 	}{
 		{
-			name: "PrintURL",
+			name: "PrintText",
 			run: func() error {
-				_, err := client.PrintURL(context.Background(), "https://example.com")
-				return err
-			},
-		},
-		{
-			name: "PrintHTML",
-			run: func() error {
-				_, err := client.PrintHTML(context.Background(), "<p>ok</p>")
+				_, err := client.PrintText(context.Background(), "ok", textrender.Options{})
 				return err
 			},
 		},
@@ -326,7 +300,7 @@ func TestClient_DoRequestDoesNotMutateCallerParams(t *testing.T) {
 	}
 }
 
-func TestClient_PrintURLFailure(t *testing.T) {
+func TestClient_PrintImageFailure(t *testing.T) {
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		resp := PrintResponse{
 			BaseResponse: BaseResponse{
@@ -339,7 +313,7 @@ func TestClient_PrintURLFailure(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	if _, err := client.PrintURL(context.Background(), "https://example.com"); err == nil {
+	if _, err := client.PrintImage(context.Background(), "AA=="); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
@@ -352,7 +326,7 @@ func TestClient_InvalidJSONIncludesResponseSnippet(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server.URL)
-	_, err := client.PrintURL(context.Background(), "https://example.com")
+	_, err := client.PrintImage(context.Background(), "AA==")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -396,22 +370,6 @@ func mustReadForm(t *testing.T, r *http.Request) url.Values {
 	return form
 }
 
-func decodeGBKBase64(t *testing.T, encoded string) string {
-	t.Helper()
-
-	gbkBytes, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		t.Fatalf("printHtml is not valid base64: %v", err)
-	}
-
-	decoded, _, err := transform.Bytes(simplifiedchinese.GBK.NewDecoder(), gbkBytes)
-	if err != nil {
-		t.Fatalf("printHtml is not GBK decodable: %v", err)
-	}
-
-	return string(decoded)
-}
-
 func TestClient_UserAgentIsConcurrencySafe(t *testing.T) {
 	var got atomic.Value
 	server := newTestServer(func(w http.ResponseWriter, r *http.Request) {
@@ -436,7 +394,7 @@ func TestClient_UserAgentIsConcurrencySafe(t *testing.T) {
 	}()
 
 	for i := 0; i < 50; i++ {
-		if _, err := client.ConvertToMonochrome(t.Context(), "AA=="); err != nil {
+		if _, err := client.convertToMonochrome(t.Context(), "AA=="); err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
 	}

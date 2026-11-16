@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ruhuang2001/memobird-go/memobird"
+	"github.com/ruhuang2001/memobird-go/textrender"
 )
 
 func main() {
@@ -34,11 +35,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if _, err := client.PrintHTML(ctx, "<h1>Hello, Memobird!</h1>"); err != nil {
+	if _, err := client.PrintText(ctx, "Hello, Memobird!", textrender.Options{}); err != nil {
 		log.Fatal(err)
 	}
 }
 ```
 
-For Chinese, render the text to an image with `textrender` and submit it with
-`client.PrintImage`. The service-side renderers do not print Chinese correctly.
+Every print goes through an image. `client.PrintText` renders the text first;
+`client.PrintImage` takes a PNG you prepared. For Chinese, pass a font with the
+needed glyphs as `textrender.Options.FontData`, because the bundled font covers
+Latin only and `PrintText` returns `memobird.ErrMissingGlyphs` otherwise.

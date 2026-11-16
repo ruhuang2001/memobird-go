@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ruhuang2001/memobird-go/memobird"
+	"github.com/ruhuang2001/memobird-go/textrender"
 )
 
 // newExampleServer stands in for the Memobird Web API so the examples run
@@ -18,7 +19,10 @@ func newExampleServer() *httptest.Server {
 	mux.HandleFunc("/home/setuserbind", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"showapi_res_code":1,"showapi_userid":123}`))
 	})
-	mux.HandleFunc("/home/printpaperFromHtml", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/home/getSignalBase64Pic", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"showapi_res_code":1,"result":"bitmap"}`))
+	})
+	mux.HandleFunc("/home/printpaper", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"showapi_res_code":1,"result":1,"smartGuid":"g1","printcontentid":42}`))
 	})
 	mux.HandleFunc("/home/getprintstatus", func(w http.ResponseWriter, _ *http.Request) {
@@ -55,7 +59,9 @@ func Example() {
 	}
 	fmt.Println("bound user:", bind.UserID)
 
-	if _, err := client.PrintHTML(ctx, "<h1>Hello, Memobird!</h1>"); err != nil {
+	// PrintText renders the text to an image and prints it. Every print goes
+	// through an image: the vendor cannot decode Chinese text.
+	if _, err := client.PrintText(ctx, "Hello, Memobird!", textrender.Options{}); err != nil {
 		panic(err)
 	}
 	fmt.Println("print submitted")
@@ -73,7 +79,7 @@ func ExampleClient_WaitForPrint() {
 	client := newExampleClient(server.URL)
 	client.SetUserID(123)
 
-	printed, err := client.PrintHTML(ctx, "<p>Hello</p>")
+	printed, err := client.PrintText(ctx, "Hello", textrender.Options{})
 	if err != nil {
 		panic(err)
 	}
@@ -120,7 +126,7 @@ func ExampleAPIError() {
 	// message: invalid access key
 }
 
-// Print calls require a bound user; the sentinel error is testable with errors.Is.
+// PrintText requires a bound user; the sentinel error is testable with errors.Is.
 func ExampleErrUserIDNotConfigured() {
 	client, err := memobird.NewClient(memobird.Config{
 		AccessKey: "ak",
@@ -131,7 +137,7 @@ func ExampleErrUserIDNotConfigured() {
 		panic(err)
 	}
 
-	_, err = client.PrintHTML(context.Background(), "<p>Hello</p>")
+	_, err = client.PrintText(context.Background(), "Hello", textrender.Options{})
 	fmt.Println(errors.Is(err, memobird.ErrUserIDNotConfigured))
 	// Output:
 	// true

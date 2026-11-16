@@ -1,11 +1,11 @@
 // Package memobird is a client for the official Memobird thermal printer Web API.
 //
-// A Client binds a Memobird user to a device and submits print jobs. Printed
-// content can come from three paths:
+// A Client binds a Memobird user to a device and prints content. Every print goes
+// through an image, because the vendor's service-side renderers cannot print
+// Chinese, so two entry points cover everything:
 //
-//   - PrintURL and PrintHTML ask the Memobird service to render the page.
-//   - PrintImage submits an already prepared base64 PNG, for example one
-//     produced by the textrender package.
+//   - PrintText renders text to an image with the textrender package and prints it.
+//   - PrintImage prints an image the caller prepared.
 //
 // # Quick start
 //
@@ -19,15 +19,16 @@
 //	if _, err := client.BindAndRemember(ctx, "user-identifying-string"); err != nil {
 //		return err
 //	}
-//	if _, err := client.PrintHTML(ctx, "<h1>Hello, Memobird!</h1>"); err != nil {
+//	if _, err := client.PrintText(ctx, "Hello, Memobird!", textrender.Options{}); err != nil {
 //		return err
 //	}
 //
-// # Chinese text
+// # Fonts
 //
-// Chinese submitted through the service-side renderers (PrintHTML, PrintURL)
-// does not come out correctly, so render the text locally with textrender and
-// submit the resulting image with PrintImage instead.
+// PrintText takes the same textrender.Options as the renderer, including
+// FontData. The bundled font covers Latin only; pass a CJK face to print Chinese.
+// Text in a script the font cannot draw returns ErrMissingGlyphs rather than
+// printing a blank box for every character.
 //
 // # Concurrency
 //
@@ -37,6 +38,7 @@
 // # Errors
 //
 // Configuration and workflow failures are reported with the exported sentinel
-// errors ErrUserIDNotConfigured and ErrUnknownPrintID, so callers can test them
-// with errors.Is. A request that the remote API rejects returns *APIError.
+// errors ErrUserIDNotConfigured, ErrUnknownPrintID, and ErrMissingGlyphs, so
+// callers can test them with errors.Is. A request that the remote API rejects
+// returns *APIError.
 package memobird

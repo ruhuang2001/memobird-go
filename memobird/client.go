@@ -368,8 +368,10 @@ func (c *Client) GetPrintStatus(ctx context.Context, printContentID int) (*Print
 	return postFormJSON[PrintStatusResponse](ctx, c, "/home/getprintstatus", params, "get status")
 }
 
-// ConvertToMonochrome converts a base64-encoded image to monochrome format suitable for thermal printing.
-func (c *Client) ConvertToMonochrome(ctx context.Context, imgBase64 string) (*ImageConvertResponse, error) {
+// convertToMonochrome converts a base64-encoded image to the bitmap format the
+// printer accepts. It is a step inside PrintImage rather than a public call,
+// because an image printed without conversion cannot reach the paper.
+func (c *Client) convertToMonochrome(ctx context.Context, imgBase64 string) (*ImageConvertResponse, error) {
 	params := url.Values{}
 	params.Set("imgBase64String", imgBase64)
 
@@ -382,7 +384,7 @@ func (c *Client) PrintImage(ctx context.Context, imgBase64 string) (*PrintRespon
 		return nil, err
 	}
 
-	convertResp, err := c.ConvertToMonochrome(ctx, imgBase64)
+	convertResp, err := c.convertToMonochrome(ctx, imgBase64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert image: %w", err)
 	}

@@ -7,25 +7,36 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Breaking: every print now goes through an image. The vendor's service-side
+  renderers do not decode GBK, so `PrintHTML` and `PrintURL` turned Chinese into
+  mojibake; both are removed rather than left as a path that works only for Latin
+  text. Two calls cover printing now:
+  - `PrintText` renders text with `textrender` and prints the image.
+  - `PrintImage` prints a PNG the caller prepared.
+  Deliberately left unreleased as v0.1.0; `memobird.Version` stays at 0.0.4.
+
+### Added
+
+- `PrintText(ctx, text, textrender.Options)` is the single text entry point. It
+  takes the same options as `textrender`, including `FontData`.
+- `ErrMissingGlyphs` reports text the font cannot draw, so a slip never prints as
+  a row of blank boxes.
+
 ### Removed
 
-- Breaking: the `renderer`, `storage`, and `config` packages are gone, along with
+- `PrintHTML`, `PrintURL`, `ConvertToMonochrome`, and the `formatter` and
+  `printutil` internal packages. Image conversion is a step inside `PrintImage`
+  and is no longer a public call: an image printed without it cannot reach paper.
+- The `renderer`, `storage`, and `config` packages, along with
   `PrintURLAsImages`, `PrintHTMLAsImages`, `BindingStore`, `BindAndPersist`,
   `PersistUserBinding`, `RestoreUserBinding`, `Config.PrintInterval`, and the
   `ErrRendererRequired`, `ErrNoPagesRendered`, and `ErrBindingStoreRequired`
-  sentinels. Rendering that needs a browser belongs to the caller: render the
-  page and submit it with `PrintImage`. Bindings are the caller's to persist; set
-  `Config.UserID` from stored state.
-- Removed the duplicate `PrintFromURL` and `PrintFromHTML` entry points;
-  `PrintURL` and `PrintHTML` are the only service-side print calls.
-- The module now requires only `golang.org/x/image` and `golang.org/x/text`.
-- Breaking: the `formatter` package moved to `internal/formatter`. It only
-  served `PrintHTML`, so `PrintHTML` is now its only caller.
-
-### Documentation
-
-- Document that Chinese printed through the service-side renderers is not usable,
-  and that the image path (`textrender` + `PrintImage`) is how Chinese is printed.
+  sentinels. Rendering that needs a browser belongs to the caller; bindings are
+  the caller's to persist through `Config.UserID`.
+- The module now requires only `golang.org/x/image`; `x/text` remains an indirect
+  dependency of `x/image`.
 
 ## [v0.0.4] - 2026-11-15
 
