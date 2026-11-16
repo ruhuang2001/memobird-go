@@ -19,6 +19,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Removed the duplicate `PrintFromURL` and `PrintFromHTML` entry points;
   `PrintURL` and `PrintHTML` are the only service-side print calls.
 - The module now requires only `golang.org/x/image` and `golang.org/x/text`.
+- Breaking: the `formatter` package moved to `internal/formatter`. It only
+  served `PrintHTML`, so `PrintHTML` is now its only caller.
 
 ### Documentation
 

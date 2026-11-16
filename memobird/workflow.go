@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ruhuang2001/memobird-go/formatter"
+	"github.com/ruhuang2001/memobird-go/internal/formatter"
 	"github.com/ruhuang2001/memobird-go/internal/printutil"
 )
 
