@@ -7,36 +7,47 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [v0.0.5] - 2026-11-16
+
+**Breaking changes:** despite the patch version, this release removes public
+packages and methods. Review the migration notes before upgrading from v0.0.4.
+
 ### Changed
 
-- Breaking: every print now goes through an image. The vendor's service-side
-  renderers do not decode GBK, so `PrintHTML` and `PrintURL` turned Chinese into
-  mojibake; both are removed rather than left as a path that works only for Latin
-  text. Two calls cover printing now:
+- Every print now goes through an image, avoiding the service-side text
+  encoding path reported to produce garbled Chinese. Two calls cover printing:
   - `PrintText` renders text with `textrender` and prints the image.
   - `PrintImage` prints a PNG the caller prepared.
-  Deliberately left unreleased as v0.1.0; `memobird.Version` stays at 0.0.4.
+- `golang.org/x/image` is the only direct module dependency; `x/text` and
+  `x/sys` remain indirect dependencies.
 
 ### Added
 
 - `PrintText(ctx, text, textrender.Options)` is the single text entry point. It
   takes the same options as `textrender`, including `FontData`.
-- `ErrMissingGlyphs` reports text the font cannot draw, so a slip never prints as
-  a row of blank boxes.
+- `ErrMissingGlyphs` makes `PrintText` reject uncovered text before making a
+  network request. The bundled font is Latin-only; Chinese needs a covering font.
 
 ### Removed
 
-- `PrintHTML`, `PrintURL`, `ConvertToMonochrome`, and the `formatter` and
-  `printutil` internal packages. Image conversion is a step inside `PrintImage`
-  and is no longer a public call: an image printed without it cannot reach paper.
-- The `renderer`, `storage`, and `config` packages, along with
+- `PrintHTML`, `PrintURL`, `PrintFromHTML`, `PrintFromURL`, and
+  `ConvertToMonochrome`. Image conversion remains an internal step of `PrintImage`.
+- The public `renderer`, `storage`, `config`, and `formatter` packages, along with
   `PrintURLAsImages`, `PrintHTMLAsImages`, `BindingStore`, `BindAndPersist`,
   `PersistUserBinding`, `RestoreUserBinding`, `Config.PrintInterval`, and the
   `ErrRendererRequired`, `ErrNoPagesRendered`, and `ErrBindingStoreRequired`
-  sentinels. Rendering that needs a browser belongs to the caller; bindings are
-  the caller's to persist through `Config.UserID`.
-- The module now requires only `golang.org/x/image`; `x/text` remains an indirect
-  dependency of `x/image`.
+  sentinels.
+
+### Migration
+
+- For plain text, call `PrintText`. For Chinese, pass a suitable TTF/OTF as
+  `textrender.Options.FontData`; the SDK does not bundle a CJK font.
+- For HTML or URLs, render to PNG outside the SDK and call `PrintImage`.
+  Multi-page sequencing and pacing belong to the caller.
+- Load configuration and persist binding IDs in the application; restore a
+  binding with `Config.UserID` or `SetUserID`.
+- Existing `textrender.RenderBase64PNG` + `PrintImage` integrations can continue
+  unchanged, including custom fonts and `Options.SkipNormalize`.
 
 ## [v0.0.4] - 2026-11-15
 
@@ -159,7 +170,8 @@ First tagged release. The module path is `github.com/ruhuang2001/memobird-go`.
 
 - Go 1.26.11 or newer, matching the toolchain in `go.mod`.
 
-[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.5...HEAD
+[v0.0.5]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.3...v0.0.4
 [v0.0.3]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/ruhuang2001/memobird-go/compare/v0.0.1...v0.0.2

@@ -8,19 +8,21 @@
 A Go client for the official Memobird thermal printer Web API. Bind a device,
 print text or an image, and poll until the job is on paper.
 
-Every print goes through an image. The vendor's service-side renderers cannot
-decode GBK or UTF-8, so Chinese sent as HTML or a URL reaches the paper as
-mojibake. Rather than expose a path that works for Latin text and silently
-corrupts everything else, this client prints only images, and offers two entry
-points over that one path.
+Every print goes through an image, avoiding the service-side text encoding path
+reported to produce garbled Chinese. `PrintText` renders locally before calling
+`PrintImage`, so callers do not need to choose a print path based on language.
 
 ## Install
 
 ```bash
-go get github.com/ruhuang2001/memobird-go@v0.0.4
+go get github.com/ruhuang2001/memobird-go@v0.0.5
 ```
 
 Requires Go 1.26.11 or newer.
+
+**Upgrading from v0.0.4:** v0.0.5 includes breaking API removals despite its patch
+version. See [migration notes](CHANGELOG.md#v005---2026-11-16). Existing
+`textrender` + `PrintImage` integrations can continue unchanged.
 
 ## Quick start
 
