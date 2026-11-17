@@ -2,11 +2,10 @@
 
 [![CI](https://github.com/ruhuang2001/memobird-go/actions/workflows/ci.yml/badge.svg)](https://github.com/ruhuang2001/memobird-go/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/ruhuang2001/memobird-go.svg)](https://pkg.go.dev/github.com/ruhuang2001/memobird-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ruhuang2001/memobird-go)](https://goreportcard.com/report/github.com/ruhuang2001/memobird-go)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Go client for the official Memobird thermal printer Web API. Bind a device,
-print text or an image, and poll until the job is on paper.
+print text or an image, and query the status reported by the service.
 
 Every print goes through an image, avoiding the service-side text encoding path
 reported to produce garbled Chinese. `PrintText` renders locally before calling
@@ -25,6 +24,10 @@ version. See [migration notes](CHANGELOG.md#v005---2026-11-16). Existing
 `textrender` + `PrintImage` integrations can continue unchanged.
 
 ## Quick start
+
+You need a Memobird API access key, a device ID, and a stable user-identifying
+string from your application. The following example contacts the real service
+and can print paper. For a credential-free local check, use `make e2e`.
 
 ```go
 package main
@@ -100,16 +103,46 @@ is Latin-only, and `PrintText` returns `ErrMissingGlyphs` instead of printing a
 blank box for every character the font cannot draw.
 
 ```go
-_, err := client.PrintText(ctx, "今天要买的三样东西", textrender.Options{
-	FontData: cjkFont, // any TTF or OTF with the glyphs; no embedded CJK font
+// Add "os" to your imports. Supply a font you have permission to distribute.
+cjkFont, err := os.ReadFile("/path/to/cjk-font.ttf")
+if err != nil {
+	log.Fatal(err)
+}
+_, err = client.PrintText(ctx, "今天要买的三样东西", textrender.Options{
+	FontData: cjkFont, // a supported TTF/OTF covering every character in this text
 })
 if err != nil {
 	log.Fatal(err)
 }
 ```
 
-To print a web page, render it yourself (headless Chrome, for example) and hand
-the PNG to `PrintImage`; the vendor's URL renderer cannot print Chinese either.
+There is no bundled CJK font, automatic font download, or font fallback. Keep
+your text as UTF-8; you do not need to encode it as GBK.
+
+### Images and pre-rendered pages
+
+`PrintImage` takes a **base64 string**, not a file path, URL, or data URI. For a
+PNG file, add `os` and `encoding/base64` to your imports:
+
+```go
+pngBytes, err := os.ReadFile("receipt.png")
+if err != nil {
+	log.Fatal(err)
+}
+printed, err := client.PrintImage(ctx, base64.StdEncoding.EncodeToString(pngBytes))
+if err != nil {
+	log.Fatal(err)
+}
+log.Printf("submitted print ID: %d", printed.PrintContentID)
+```
+
+Text rendering is local, but image conversion is not: `PrintImage` sends the
+image to the vendor's conversion endpoint, then submits the returned bitmap.
+Both print methods therefore need network access and send the image content to
+the Memobird service.
+
+For HTML or URLs, render to PNG outside this SDK and use `PrintImage`. Existing
+`textrender.RenderBase64PNG` + `PrintImage` integrations do not need to change.
 
 ### Binding
 
@@ -120,6 +153,8 @@ resp, err := client.BindAndRemember(ctx, "your-user-identifying-string")
 `SetUserID` / `GetUserID` read and write the bound user without the network. To
 keep the binding across restarts, store `resp.UserID` yourself and set
 `Config.UserID` on the next start.
+`BindUser` only returns the binding response; unlike `BindAndRemember`, it does
+not update the client's user ID.
 
 ### Waiting for the printer
 
@@ -129,13 +164,15 @@ timeout, on API errors, and when the API has no record of the print content ID.
 
 ```go
 status, err := client.WaitForPrint(ctx, printContentID, memobird.WaitOptions{
-	Interval: time.Second,    // default 1s
+	Interval: time.Second,     // default 1s
 	Timeout:  2 * time.Minute, // default 2m
 })
 ```
 
-A powered-off device keeps a job pending in the cloud and prints it after it
-reconnects, so `Timeout` is the only bound on how long a caller waits.
+A device can remain pending while offline. The earlier of the context deadline
+and `WaitOptions.Timeout` bounds the wait; canceling the wait does not cancel the
+cloud job. A successful submission is not confirmation of paper output: use
+`GetPrintStatus` or `WaitForPrint` to observe the service's reported status.
 
 ### Layout
 
@@ -150,17 +187,27 @@ line collapses to one. No visible character is ever removed, including one the
 font cannot draw, because whether a glyph exists depends on the font the caller
 chose.
 
+`MaxLines` truncates rather than returning an error, including when used with
+`PrintText`. Check `Measure` first if losing content is unacceptable. The
+standalone renderer does not reject missing glyphs; `PrintText` does.
+
 Two calls help before printing paper:
 
 ```go
 // Does the font cover this text? An uncovered rune draws as a blank box.
-covered, _ := textrender.FontHasGlyphs(text, cjkFont)
+covered, err := textrender.FontHasGlyphs(text, cjkFont)
+if err != nil {
+	log.Fatal(err)
+}
 if !covered {
 	// Pick a font with the needed glyphs before rendering.
 }
 
 // Will it fit, and is MaxLines about to cut it short?
-layout, _ := textrender.Measure(text, textrender.Options{FontData: cjkFont, MaxLines: 40})
+layout, err := textrender.Measure(text, textrender.Options{FontData: cjkFont, MaxLines: 40})
+if err != nil {
+	log.Fatal(err)
+}
 if layout.Truncated {
 	// Split the text instead of printing a slip that stops mid-sentence.
 }
@@ -209,6 +256,10 @@ a retry could print a page twice. A caller printing several pages should submit
 them itself, space the calls out if the service needs it, and inspect each
 response.
 
+If submission times out or the connection drops, the service may already have
+accepted the job. Do not blindly resubmit. If you have a `PrintContentID`, query
+that job instead; a waiting timeout is not a reason to submit it again.
+
 ## Development
 
 ```bash
@@ -228,8 +279,11 @@ the `memobird` dependency list, and logs to `build/review-e2e/`.
 | stable | Tested in CI |
 
 The minimum tracks security fixes in the standard library, so it can rise in a
-patch release of this library. `go.mod` pins it deliberately: CI, `govulncheck`,
-and local development all use the same compiler.
+patch release of this library. CI tests both the declared minimum and Go stable.
+Use `GOTOOLCHAIN=go1.26.11` locally to match the minimum-version CI job.
+
+See [examples](examples/README.md), [contributor instructions](CONTRIBUTING.md),
+and [local E2E coverage](e2e/README.md) for runnable checks.
 
 ## License
 

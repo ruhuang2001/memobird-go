@@ -26,10 +26,14 @@ Actions current; its pull requests still require the full CI suite to pass.
 
 ## Scope
 
-This library sends requests to the official Memobird Web API and, for local
-rendering, drives a headless Chrome instance. Reports that matter here include
-credential leakage in logs or errors, injection into rendered HTML, unsafe URL
-handling, unbounded memory growth from remote responses, and denial of service
-through the renderer. Vulnerabilities in the Memobird service itself, in Chrome,
-or in the printer firmware are outside this repository's scope, though we are
-still interested in how this library exposes them.
+This library sends requests to the official Memobird Web API and renders text
+locally with Go font and image packages. It does not run a browser, render HTML,
+or fetch page URLs. Reports that matter here include credential leakage in logs
+or errors, unsafe handling of API responses, and denial of service through text
+layout or caller-supplied font data.
+
+Both print methods upload image content to the vendor for conversion and
+submission. Applications are responsible for deciding what content may be sent,
+protecting credentials, and bounding untrusted text, image, and font inputs.
+Vulnerabilities in the Memobird service or printer firmware are outside this
+repository's scope, though we are interested in how this library exposes them.

@@ -18,19 +18,21 @@ make e2e     # local workflow E2E, artifacts in build/review-e2e
 ```
 
 `make e2e` uses a local stand-in for the Memobird API and never contacts a real
-printer, so it is safe to run anywhere. It sets `MEMOBIRD_E2E` and
-`MEMOBIRD_E2E_ARTIFACTS` itself; set `MEMOBIRD_E2E_ARTIFACTS` to collect the
-artifacts somewhere else.
+printer. It sets `MEMOBIRD_E2E=1` and writes artifacts to `build/review-e2e/`.
+For a custom artifact directory, invoke the tests directly as described in
+[e2e/README.md](e2e/README.md).
 
 ## Before opening a pull request
 
 Run the same checks CI runs:
 
 ```bash
+export GOTOOLCHAIN=go1.26.11
 gofmt -l .                 # must print nothing
 go vet ./...
 golangci-lint run ./...
 go test -race ./...
+make e2e
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 go mod tidy && git diff --exit-code -- go.mod go.sum
 ```
@@ -63,12 +65,15 @@ is rejected in review, including for `docs`, `test`, and `ci` commits.
 - `test(e2e):` end-to-end test harness changes
 - `ci(actions):` GitHub Actions workflow changes
 - `docs(contributing):` documentation only
-- `deps:`, `refactor:`, `perf(build):` as their names suggest
+- `chore(deps):` dependency upgrades
+- `refactor(memobird):` API client restructuring
+- `perf(textrender):` renderer performance improvements
 
 Pick the package, not the file: `fix(textrender): keep trailing spaces in wrapped
 lines`, not `fix: update textrender.go`. One commit carries one logical change;
 split unrelated edits instead of widening the scope. When a change spans
-packages, use the package callers care about and describe the rest in the body.
+packages, use the package callers care about. Keep the subject short; add a body
+only when the rationale or migration needs explaining.
 
 Keep history linear: rebase onto `main`, and do not create merge commits.
 
@@ -79,8 +84,11 @@ Maintainers only. Releases are cut from `main` after CI is green:
 1. Move the `Unreleased` entries in `CHANGELOG.md` into a new `## [vX.Y.Z]`
    section and update the comparison links.
 2. Bump `memobird.Version` in `memobird/client.go` to `X.Y.Z`.
-3. Commit, then push a `vX.Y.Z` tag.
+3. Update the installation version and any migration notes in `README.md`.
+4. Commit and push the release preparation to `main`, wait for CI, then push a
+   `vX.Y.Z` tag at that commit. Do not move an existing release tag.
 
 The `Release` workflow verifies that the tag, `memobird.Version`, and the
 changelog section agree, runs the vulnerability scan and tests again, and
-publishes a GitHub release. pkg.go.dev picks up the tag automatically.
+publishes a GitHub release. Check that the tagged module can be downloaded;
+publication of the GitHub release alone does not verify module availability.
